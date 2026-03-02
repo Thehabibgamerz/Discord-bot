@@ -35,6 +35,30 @@ app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 
 /* ========= SLASH COMMANDS ========= */
 const commands = [
+  {
+  name: "status",
+  description: "Change bot status",
+  options: [
+    {
+      name: "type",
+      description: "Choose status type",
+      type: 3,
+      required: true,
+      choices: [
+        { name: "Playing", value: "PLAYING" },
+        { name: "Watching", value: "WATCHING" },
+        { name: "Listening", value: "LISTENING" },
+        { name: "Streaming", value: "STREAMING" }
+      ]
+    },
+    {
+      name: "text",
+      description: "Status text",
+      type: 3,
+      required: true
+    }
+  ]
+  }
   new SlashCommandBuilder()
     .setName('panel')
     .setDescription('Send the ticket panel')
@@ -51,6 +75,31 @@ client.once('ready', async () => {
 
 /* ========= INTERACTION HANDLER ========= */
 client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+if (interaction.commandName === "status") {
+  const { ActivityType } = require("discord.js");
+
+  const type = interaction.options.getString("type");
+  const text = interaction.options.getString("text");
+
+  let activityType;
+
+  if (type === "PLAYING") activityType = ActivityType.Playing;
+  if (type === "WATCHING") activityType = ActivityType.Watching;
+  if (type === "LISTENING") activityType = ActivityType.Listening;
+  if (type === "STREAMING") activityType = ActivityType.Streaming;
+
+  client.user.setActivity(text, {
+    type: activityType,
+    url: type === "STREAMING" ? "https://twitch.tv/discord" : undefined
+  });
+
+  await interaction.reply({
+    content: `✅ Status updated to ${type} ${text}`,
+    ephemeral: true
+  });
+}
 
   /* SLASH COMMAND */
   if (interaction.isChatInputCommand()) {
