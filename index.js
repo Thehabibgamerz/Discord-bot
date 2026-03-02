@@ -1,20 +1,21 @@
 const {
   Client,
   GatewayIntentBits,
-  PermissionsBitField,
   REST,
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
 
+const express = require('express');
+
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const PORT = process.env.PORT || 3000;
+
+/* ================= DISCORD CLIENT ================= */
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
+  intents: [GatewayIntentBits.Guilds]
 });
 
 /* ================= SLASH COMMANDS ================= */
@@ -22,19 +23,78 @@ const client = new Client({
 const commands = [
   new SlashCommandBuilder()
     .setName('ping')
-    .setDescription('Check bot latency'),
+    .setDescription('Check bot latency')
+].map(cmd => cmd.toJSON());
 
-  new SlashCommandBuilder()
-    .setName('say')
-    .setDescription('Make the bot say something')
-    .addStringOption(option =>
-      option.setName('text')
-        .setDescription('Message to send')
-        .setRequired(true)),
+client.once('ready', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
 
-  new SlashCommandBuilder()
-    .setName('kick')
-    .setDescription('Kick a member')
+/* ================= INTERACTIONS ================= */
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'ping') {
+    await interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
+  }
+});
+
+/* ================= REGISTER COMMANDS ================= */
+
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  await rest.put(
+    Routes.applicationCommands(CLIENT_ID),
+    { body: commands }
+  );
+  console.log("✅ Slash commands registered");
+}
+
+registerCommands();
+
+client.login(TOKEN);
+
+/* ================= WEB DASHBOARD ================= */
+
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Bot Dashboard</title>
+        <style>
+          body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            text-align: center;
+            padding-top: 50px;
+          }
+          .card {
+            background: #1e293b;
+            padding: 30px;
+            border-radius: 10px;
+            display: inline-block;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>🤖 ${client.user ? client.user.username : "Bot"}</h1>
+          <p>Status: 🟢 Online</p>
+          <p>Servers: ${client.guilds.cache.size}</p>
+          <p>Ping: ${client.ws.ping}ms</p>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Dashboard running on port ${PORT}`);
+});    .setDescription('Kick a member')
     .addUserOption(option =>
       option.setName('user')
         .setDescription('User to kick')
