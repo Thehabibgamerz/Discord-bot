@@ -1,18 +1,20 @@
+// index.js
 const {
   Client,
   GatewayIntentBits,
-  PermissionsBitField,
   ChannelType,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   SlashCommandBuilder,
   REST,
-  Routes
-} = require('discord.js');
+  Routes,
+  ActivityType,
+  PermissionsBitField
+} = require("discord.js");
+const express = require("express");
 
-const express = require('express');
-
+// Environment variables
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
@@ -24,177 +26,155 @@ if (!TOKEN || !CLIENT_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID) {
   process.exit(1);
 }
 
+// Create client with only Guilds intent (safe)
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [GatewayIntentBits.Guilds]
 });
 
-/* ========= WEB SERVER FOR RAILWAY ========= */
+/* ====== WEB SERVER FOR RAILWAY ====== */
 const app = express();
-app.get('/', (req, res) => res.send("Professional Ticket Bot Running ✅"));
+app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 
-/* ========= SLASH COMMANDS ========= */
+/* ====== SLASH COMMANDS ====== */
 const commands = [
-  {
-  name: "status",
-  description: "Change bot status",
-  options: [
-    {
-      name: "type",
-      description: "Choose status type",
-      type: 3,
-      required: true,
-      choices: [
-        { name: "Playing", value: "PLAYING" },
-        { name: "Watching", value: "WATCHING" },
-        { name: "Listening", value: "LISTENING" },
-        { name: "Streaming", value: "STREAMING" }
-      ]
-    },
-    {
-      name: "text",
-      description: "Status text",
-      type: 3,
-      required: true
-    }
-  ]
-  }
+  // Ticket panel
   new SlashCommandBuilder()
-    .setName('panel')
-    .setDescription('Send the ticket panel')
+    .setName("panel")
+    .setDescription("Send the ticket panel"),
+
+  // Status command
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("Change bot status")
+    .addStringOption(option =>
+      option
+        .setName("type")
+        .setDescription("Choose status type")
+        .setRequired(true)
+        .addChoices(
+          { name: "Playing", value: "PLAYING" },
+          { name: "Watching", value: "WATCHING" },
+          { name: "Listening", value: "LISTENING" },
+          { name: "Streaming", value: "STREAMING" }
+        )
+    )
+    .addStringOption(option =>
+      option
+        .setName("text")
+        .setDescription("Status text")
+        .setRequired(true)
+    )
 ].map(cmd => cmd.toJSON());
 
-client.once('ready', async () => {
+// Register commands
+client.once("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-
-  console.log("✅ Slash commands registered");
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+  try {
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+    console.log("✅ Slash commands registered");
+  } catch (err) {
+    console.error(err);
+  }
 });
 
-/* ========= INTERACTION HANDLER ========= */
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-if (interaction.commandName === "status") {
-  const { ActivityType } = require("discord.js");
-
-  const type = interaction.options.getString("type");
-  const text = interaction.options.getString("text");
-
-  let activityType;
-
-  if (type === "PLAYING") activityType = ActivityType.Playing;
-  if (type === "WATCHING") activityType = ActivityType.Watching;
-  if (type === "LISTENING") activityType = ActivityType.Listening;
-  if (type === "STREAMING") activityType = ActivityType.Streaming;
-
-  client.user.setActivity(text, {
-    type: activityType,
-    url: type === "STREAMING" ? "https://twitch.tv/discord" : undefined
-  });
-
-  await interaction.reply({
-    content: `✅ Status updated to ${type} ${text}`,
-    ephemeral: true
-  });
-}
-
-  /* SLASH COMMAND */
+/* ====== INTERACTION HANDLER ====== */
+client.on("interactionCreate", async interaction => {
   if (interaction.isChatInputCommand()) {
-
-    if (interaction.commandName === 'panel') {
-
+    // ===== Panel =====
+    if (interaction.commandName === "panel") {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
         return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
       const createBtn = new ButtonBuilder()
-        .setCustomId('create_ticket')
-        .setLabel('🎟 Create Ticket')
+        .setCustomId("create_ticket")
+        .setLabel("🎟 Create Ticket")
         .setStyle(ButtonStyle.Primary);
 
       const row = new ActionRowBuilder().addComponents(createBtn);
 
       return interaction.reply({
-        content: "🎟 **Support Ticket Panel**\nClick below to create a ticket.",
+        content: "🎟 Ticket Panel — click below to create a ticket.",
         components: [row]
       });
     }
+
+    // ===== Status =====
+    if (interaction.commandName === "status") {
+      const type = interaction.options.getString("type");
+      const text = interaction.options.getString("text");
+
+      let activityType;
+      if (type === "PLAYING") activityType = ActivityType.Playing;
+      if (type === "WATCHING") activityType = ActivityType.Watching;
+      if (type === "LISTENING") activityType = ActivityType.Listening;
+      if (type === "STREAMING") activityType = ActivityType.Streaming;
+
+      client.user.setActivity(text, {
+        type: activityType,
+        url: type === "STREAMING" ? "https://twitch.tv/discord" : undefined
+      });
+
+      return interaction.reply({ content: `✅ Status updated to ${type} ${text}`, ephemeral: true });
+    }
   }
 
-  /* BUTTON HANDLING */
+  // ===== Button interactions =====
   if (interaction.isButton()) {
+    const id = interaction.customId;
 
-    /* CREATE TICKET */
-    if (interaction.customId === 'create_ticket') {
-
+    // Create ticket
+    if (id === "create_ticket") {
       const existing = interaction.guild.channels.cache.find(
         ch => ch.name === `ticket-${interaction.user.id}`
       );
-
       if (existing)
-        return interaction.reply({ content: "❌ You already have an open ticket!", ephemeral: true });
+        return interaction.reply({ content: "❌ You already have a ticket!", ephemeral: true });
 
       const channel = await interaction.guild.channels.create({
         name: `ticket-${interaction.user.id}`,
         type: ChannelType.GuildText,
         parent: CATEGORY_ID,
         permissionOverwrites: [
-          {
-            id: interaction.guild.id,
-            deny: [PermissionsBitField.Flags.ViewChannel]
-          },
-          {
-            id: interaction.user.id,
-            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
-          },
-          {
-            id: SUPPORT_ROLE_ID,
-            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
-          }
+          { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+          { id: SUPPORT_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
         ]
       });
 
       const claimBtn = new ButtonBuilder()
-        .setCustomId('claim_ticket')
-        .setLabel('👤 Claim')
+        .setCustomId("claim_ticket")
+        .setLabel("👤 Claim")
         .setStyle(ButtonStyle.Success);
 
       const closeBtn = new ButtonBuilder()
-        .setCustomId('close_ticket')
-        .setLabel('🔒 Close')
+        .setCustomId("close_ticket")
+        .setLabel("🔒 Close")
         .setStyle(ButtonStyle.Danger);
 
       const row = new ActionRowBuilder().addComponents(claimBtn, closeBtn);
 
       await channel.send({
-        content: `🎟 Ticket created by <@${interaction.user.id}>\nSupport will assist you shortly.`,
+        content: `🎟 Ticket created by <@${interaction.user.id}>`,
         components: [row]
       });
 
-      return interaction.reply({
-        content: `✅ Ticket created: ${channel}`,
-        ephemeral: true
-      });
+      return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
     }
 
-    /* CLAIM TICKET */
-    if (interaction.customId === 'claim_ticket') {
-
+    // Claim ticket
+    if (id === "claim_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
         return interaction.reply({ content: "❌ Support role only.", ephemeral: true });
 
       await interaction.channel.setName(`claimed-${interaction.user.username}`);
-
-      return interaction.reply({
-        content: `👤 Ticket claimed by ${interaction.user}`,
-      });
+      return interaction.reply({ content: `👤 Ticket claimed by ${interaction.user}` });
     }
 
-    /* CLOSE TICKET */
-    if (interaction.customId === 'close_ticket') {
-
+    // Close ticket
+    if (id === "close_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
         return interaction.reply({ content: "❌ Support role only.", ephemeral: true });
 
@@ -204,4 +184,5 @@ if (interaction.commandName === "status") {
   }
 });
 
+// Login
 client.login(TOKEN);
