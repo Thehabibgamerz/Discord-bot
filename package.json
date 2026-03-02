@@ -1,7 +1,7 @@
 {
-  "name": "discord-bot-dashboard",
+  "name": "pro-ticket-bot",
   "version": "1.0.0",
-  "description": "Discord Bot with Web Dashboard",
+  "description": "Professional Discord Ticket System",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
