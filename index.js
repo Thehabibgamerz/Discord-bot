@@ -19,24 +19,25 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
+const OWNER_ID = process.env.OWNER_ID; // Add your Discord ID in Railway
 const PORT = process.env.PORT || 3000;
 
-if (!TOKEN || !CLIENT_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID) {
+if (!TOKEN || !CLIENT_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID) {
   console.log("❌ Missing environment variables!");
   process.exit(1);
 }
 
-// Create client with only Guilds intent (safe)
+// Client with only Guilds intent
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-/* ====== WEB SERVER FOR RAILWAY ====== */
+/* ====== Web Server for Railway ====== */
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 
-/* ====== SLASH COMMANDS ====== */
+/* ====== Slash Commands ====== */
 const commands = [
   // Ticket panel
   new SlashCommandBuilder()
@@ -46,7 +47,7 @@ const commands = [
   // Status command
   new SlashCommandBuilder()
     .setName("status")
-    .setDescription("Change bot status")
+    .setDescription("Change bot status (owner only)")
     .addStringOption(option =>
       option
         .setName("type")
@@ -80,7 +81,7 @@ client.once("ready", async () => {
   }
 });
 
-/* ====== INTERACTION HANDLER ====== */
+/* ====== Interaction Handler ====== */
 client.on("interactionCreate", async interaction => {
   if (interaction.isChatInputCommand()) {
     // ===== Panel =====
@@ -101,8 +102,11 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    // ===== Status =====
+    // ===== Owner-Only Status =====
     if (interaction.commandName === "status") {
+      if (interaction.user.id !== OWNER_ID)
+        return interaction.reply({ content: "❌ Only the bot owner can use this command.", ephemeral: true });
+
       const type = interaction.options.getString("type");
       const text = interaction.options.getString("text");
 
@@ -121,11 +125,11 @@ client.on("interactionCreate", async interaction => {
     }
   }
 
-  // ===== Button interactions =====
+  // ===== Button Interactions =====
   if (interaction.isButton()) {
     const id = interaction.customId;
 
-    // Create ticket
+    // Create Ticket
     if (id === "create_ticket") {
       const existing = interaction.guild.channels.cache.find(
         ch => ch.name === `ticket-${interaction.user.id}`
@@ -164,7 +168,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
     }
 
-    // Claim ticket
+    // Claim Ticket
     if (id === "claim_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
         return interaction.reply({ content: "❌ Support role only.", ephemeral: true });
@@ -173,7 +177,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `👤 Ticket claimed by ${interaction.user}` });
     }
 
-    // Close ticket
+    // Close Ticket
     if (id === "close_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
         return interaction.reply({ content: "❌ Support role only.", ephemeral: true });
