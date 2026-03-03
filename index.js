@@ -1,6 +1,5 @@
 // ===============================================
-// QPVA COMPLETE PROFESSIONAL BOT (STABLE)
-// Node 18+ / 20+ / 22+ Compatible
+// QPVA COMPLETE PROFESSIONAL BOT - FINAL
 // ===============================================
 
 const {
@@ -16,7 +15,8 @@ const {
     ActivityType,
     PermissionsBitField,
     StringSelectMenuBuilder,
-    AttachmentBuilder
+    AttachmentBuilder,
+    EmbedBuilder
 } = require("discord.js");
 
 const express = require("express");
@@ -109,7 +109,12 @@ const commands = [
         .setName("atis")
         .setDescription("Get live ATIS")
         .addStringOption(o =>
-            o.setName("server").setDescription("Server").setRequired(true))
+            o.setName("server").setDescription("Server").setRequired(true)
+             .addChoices(
+                { name: "Casual", value: "casual" },
+                { name: "Training", value: "training" },
+                { name: "Expert", value: "expert" }
+             ))
         .addStringOption(o =>
             o.setName("icao").setDescription("Airport ICAO").setRequired(true))
 
@@ -129,7 +134,7 @@ client.on("ready", () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-// ================= UTIL =================
+// ================= TICKET FUNCTIONS =================
 function resetInactivity(channel) {
     if (client.ticketTimers.has(channel.id)) {
         clearTimeout(client.ticketTimers.get(channel.id));
@@ -174,10 +179,8 @@ client.on("interactionCreate", async interaction => {
 
 try {
 
-// ================= SLASH =================
-if (interaction.isChatInputCommand()) {
-
-if (interaction.commandName === "panel") {
+// ================= PANEL =================
+if (interaction.isChatInputCommand() && interaction.commandName === "panel") {
 
 if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
 return interaction.reply({ content: "Admin only.", ephemeral: true });
@@ -185,17 +188,15 @@ return interaction.reply({ content: "Admin only.", ephemeral: true });
 const channel = interaction.options.getChannel("channel");
 const image = interaction.options.getString("image");
 
-const embed = {
-title: "QPVA Support Centre!",
-description:
-`Welcome to the Akasa Air Virtual Support Center! ✈️
-Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&1389824693388837035> is available to help you quickly and efficiently.
+const embed = new EmbedBuilder()
+.setTitle("QPVA Support Centre!")
+.setDescription(`Welcome to the Akasa Air Virtual Support Center! ✈️
+Need assistance? Our staff will help you quickly and efficiently.
 
-Please select a category below to get started.`,
-color: 0x00bfff
-};
+Please select a category below.`)
+.setColor(0x00bfff);
 
-if (image) embed.image = { url: image };
+if (image) embed.setImage(image);
 
 const row = new ActionRowBuilder().addComponents(
 new StringSelectMenuBuilder()
@@ -212,39 +213,6 @@ new StringSelectMenuBuilder()
 
 await channel.send({ embeds: [embed], components: [row] });
 return interaction.reply({ content: "Panel sent.", ephemeral: true });
-}
-
-// ================= ATIS =================
-if (interaction.commandName === "atis") {
-
-await interaction.deferReply();
-
-const icao = interaction.options.getString("icao").toUpperCase();
-
-try {
-const response = await fetch(
-`https://api.infiniteflight.com/public/v2/atis/${icao}?apikey=${INFINITE_API_KEY}`
-);
-
-const data = await response.json();
-
-if (!data.result)
-return interaction.editReply("ATIS not found.");
-
-return interaction.editReply({
-embeds: [{
-title: `ATIS - ${icao}`,
-description: data.result,
-color: 0x00ffcc
-}]
-});
-
-} catch {
-return interaction.editReply("Failed to fetch ATIS.");
-}
-
-}
-
 }
 
 // ================= TICKET CREATE =================
@@ -277,6 +245,11 @@ permissionOverwrites: [
 ]
 });
 
+const embed = new EmbedBuilder()
+.setTitle(`🎟 Ticket #${ticketNumber}`)
+.setDescription("Our staff team will contact you shortly!")
+.setColor(0x2ecc71);
+
 const buttons = new ActionRowBuilder().addComponents(
 new ButtonBuilder().setCustomId("claim").setLabel("Claim").setStyle(ButtonStyle.Primary),
 new ButtonBuilder().setCustomId("close").setLabel("Close").setStyle(ButtonStyle.Danger),
@@ -284,7 +257,8 @@ new ButtonBuilder().setCustomId("delete").setLabel("Delete").setStyle(ButtonStyl
 );
 
 await channel.send({
-content: `🎟 Ticket ${ticketNumber} created by <@${interaction.user.id}>`,
+content: `<@${interaction.user.id}> <@&${roleId}>`,
+embeds: [embed],
 components: [buttons]
 });
 
@@ -317,7 +291,6 @@ console.error(err);
 
 });
 
-// ================= RESET TIMER =================
 client.on("messageCreate", message => {
 if (!message.guild) return;
 if (message.channel.name.startsWith("ticket-")) {
