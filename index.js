@@ -233,38 +233,46 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
         }
 
-        // --- TICKET CLAIM/CLOSE ---
-        if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
-            const [action, , ticketId] = interaction.customId.split("_");
-            const ticketChannel = interaction.guild.channels.cache.get(ticketId);
-            if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
+        // --- TICKET CLAIM/CLOSE BUTTON HANDLER ---
+if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
+    const [action, , ticketId] = interaction.customId.split("_");
+    const ticketChannel = interaction.guild.channels.cache.get(ticketId);
+    if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
 
-            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
-                return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
+    if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
+        return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
 
-            const message = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-            if (!message) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
+    const message = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+    if (!message) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
 
-            const embed = message.embeds[0].toJSON();
+    const embed = message.embeds[0].toJSON();
 
-            if (action === "claim") {
-                embed.fields[1].value = `<@${interaction.user.id}>`;
-                await message.edit({ embeds: [embed] });
-                if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
-                return interaction.reply({ content: "✅ You claimed this ticket.", ephemeral: true });
-            }
+    if (action === "claim") {
+        embed.fields[1].value = `<@${interaction.user.id}>`;
+        await message.edit({ embeds: [embed] });
+        if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
+        return interaction.reply({ content: "✅ You claimed this ticket.", ephemeral: true });
+    }
 
-            if (action === "close") {
-                const disabledButtons = message.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
-                await message.edit({ components: disabledButtons });
+    if (action === "close") {
+        // Disable buttons on ticket
+        const disabledButtons = message.components.map(row => {
+            row.components.forEach(c => c.setDisabled(true));
+            return row;
+        });
+        await message.edit({ components: disabledButtons });
 
-                await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
-                await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+        // Remove ticket permissions
+        await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
+        await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
 
-                if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-                return interaction.reply({ content: "✅ Ticket closed.", ephemeral: true });
-            }
-        }
+        // Send log
+        if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+
+        // ✅ **ACKNOWLEDGE interaction properly**
+        return interaction.reply({ content: "✅ Ticket closed successfully.", ephemeral: true });
+    }
+}
 
         // --- GIVEAWAY BUTTONS ---
         if (interaction.customId.startsWith("giveaway_")) {
