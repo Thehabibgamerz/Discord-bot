@@ -17,11 +17,10 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
-const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 
 // Role IDs for ticket categories
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
-const RECRUIT_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
 
@@ -183,7 +182,6 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
 
-        // Delete ticket channel
         ticketData.delete(interaction.channel.id);
         activeTickets.delete(data.openedBy);
         return interaction.channel.delete();
@@ -195,6 +193,9 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
 
       if (activeTickets.has(interaction.user.id))
         return interaction.reply({ content: "❌ You already have an open ticket.", ephemeral: true });
+
+      // ✅ Fix for "This interaction failed"
+      await interaction.deferReply({ ephemeral: true });
 
       ticketCounter++;
       const ticketNumber = String(ticketCounter).padStart(3, "0");
@@ -235,7 +236,8 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       );
 
       await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
-      return interaction.reply({ content: `🎟 Ticket created: ${channel}`, ephemeral: true });
+
+      return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
     }
 
     // ----------------- Ticket Buttons -----------------
