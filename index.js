@@ -1,237 +1,306 @@
 // index.js
-
-const { 
-    Client, 
-    GatewayIntentBits, 
-    ChannelType, 
-    ActionRowBuilder, 
-    ButtonBuilder, 
-    ButtonStyle, 
-    SlashCommandBuilder, 
-    REST, 
-    Routes, 
-    ActivityType, 
-    PermissionsBitField,
-    EmbedBuilder
-} = require("discord.js");
-
+const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, ActivityType, PermissionsBitField } = require("discord.js");
 const express = require("express");
 
-// ================= ENV =================
-const {
-    TOKEN,
-    CLIENT_ID,
-    GUILD_ID,
-    SUPPORT_ROLE_ID,
-    RECRUITER_ROLE_ID,
-    CATEGORY_ID,
-    TICKET_LOG_CHANNEL_ID,
-    OWNER_ID,
-    WELCOME_CHANNEL_ID,
-    LEAVE_CHANNEL_ID,
-    AUTO_ROLE_ID,
-    PORT
-} = process.env;
+// ---------------------- ENV VARIABLES ----------------------
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
+const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID;
+const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID;
+const OWNER_ID = process.env.OWNER_ID;
+const PORT = process.env.PORT || 3000;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-    console.log("❌ Missing critical environment variables!");
-    process.exit(1);
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TICKET_LOG_CHANNEL_ID || !OWNER_ID || !RECRUITER_ROLE_ID) {
+console.log("❌ Missing environment variables!");
+process.exit(1);
 }
 
-// ================= CLIENT =================
+// ---------------------- CLIENT ----------------------
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.MessageContent
-    ]
+intents: [
+GatewayIntentBits.Guilds,
+GatewayIntentBits.GuildMessages,
+GatewayIntentBits.MessageContent
+]
 });
 
-// ================= EXPRESS (RAILWAY) =================
+// ---------------------- EXPRESS UPTIME ----------------------
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
-app.listen(PORT || 3000, "0.0.0.0", () => {
-    console.log(`🌐 Web server running`);
-});
+app.listen(PORT, () => console.log(🌐 Web server running on ${PORT}));
 
-// ================= READY =================
-client.once("ready", () => {
-    console.log(`🤖 Logged in as ${client.user.tag}`);
-});
-
-// ================= WELCOME SYSTEM =================
-client.on("guildMemberAdd", async (member) => {
-    const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
-    if (!channel) return;
-
-    if (AUTO_ROLE_ID) {
-        try { await member.roles.add(AUTO_ROLE_ID); } catch {}
-    }
-
-    const embed = new EmbedBuilder()
-        .setTitle("🎉 Welcome!")
-        .setDescription(`Welcome ${member} to **${member.guild.name}**!`)
-        .setColor(0x00ff00)
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: `Member #${member.guild.memberCount}` })
-        .setTimestamp();
-
-    channel.send({ embeds: [embed] });
-
-    try {
-        await member.send(`👋 Welcome to **${member.guild.name}**! Enjoy your stay.`);
-    } catch {}
-});
-
-// ================= LEAVE SYSTEM =================
-client.on("guildMemberRemove", async (member) => {
-    const channel = member.guild.channels.cache.get(LEAVE_CHANNEL_ID);
-    if (!channel) return;
-
-    channel.send(`😢 ${member.user.tag} has left the server.`);
-});
-
-// ================= SLASH COMMANDS =================
+// ---------------------- SLASH COMMANDS ----------------------
 const commands = [
-    new SlashCommandBuilder()
-        .setName("panel")
-        .setDescription("Send the ticket panel")
-        .addChannelOption(opt => opt.setName("channel").setDescription("Channel").setRequired(true)),
+new SlashCommandBuilder()
+.setName("panel")
+.setDescription("Send the ticket panel")
+.addChannelOption(opt => opt.setName("channel").setDescription("Where to send the panel").setRequired(true))
+.addStringOption(opt => opt.setName("image").setDescription("Optional panel image URL")),
 
-    new SlashCommandBuilder()
-        .setName("status")
-        .setDescription("Change bot status")
-        .addStringOption(opt => opt.setName("type").setRequired(true)
-            .addChoices(
-                { name: "Playing", value: "PLAYING" },
-                { name: "Watching", value: "WATCHING" },
-                { name: "Listening", value: "LISTENING" },
-                { name: "Streaming", value: "STREAMING" }
-            ))
-        .addStringOption(opt => opt.setName("text").setRequired(true)),
+new SlashCommandBuilder()  
+    .setName("status")  
+    .setDescription("Change bot status (owner only)")  
+    .addStringOption(opt => opt.setName("type").setDescription("Status type").setRequired(true)  
+        .addChoices(  
+            { name: "Playing", value: "PLAYING" },  
+            { name: "Watching", value: "WATCHING" },  
+            { name: "Listening", value: "LISTENING" },  
+            { name: "Streaming", value: "STREAMING" }  
+        ))  
+    .addStringOption(opt => opt.setName("text").setDescription("Status text").setRequired(true)),  
 
-    new SlashCommandBuilder()
-        .setName("giveaway")
-        .setDescription("Create giveaway")
-        .addStringOption(opt => opt.setName("title").setRequired(true))
-        .addStringOption(opt => opt.setName("description").setRequired(true))
-        .addStringOption(opt => opt.setName("prize").setRequired(true))
-        .addChannelOption(opt => opt.setName("channel").setRequired(true))
-        .addStringOption(opt => opt.setName("ends_on").setRequired(true))
+new SlashCommandBuilder()  
+    .setName("giveaway")  
+    .setDescription("Create a giveaway")  
+    .addStringOption(opt => opt.setName("title").setDescription("Giveaway title").setRequired(true))  
+    .addStringOption(opt => opt.setName("description").setDescription("Giveaway description").setRequired(true))  
+    .addStringOption(opt => opt.setName("prize").setDescription("Prize").setRequired(true))  
+    .addChannelOption(opt => opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))  
+    .addStringOption(opt => opt.setName("ends_on").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))  
+    .addStringOption(opt => opt.setName("image").setDescription("Optional image URL"))  
+    .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'"))
+
 ].map(cmd => cmd.toJSON());
 
-// ================= REGISTER =================
+// ---------------------- REGISTER COMMANDS ----------------------
 (async () => {
-    const rest = new REST({ version: "10" }).setToken(TOKEN);
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log("✅ Slash commands registered");
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+try {
+console.log("🛠 Registering slash commands...");
+const data = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+console.log(✅ Registered ${data.length} commands: ${data.map(c => c.name).join(", ")});
+} catch (error) {
+console.error("❌ Failed to register commands:", error);
+}
 })();
 
-// ================= GIVEAWAY STORAGE =================
+// ---------------------- DATA STORAGE ----------------------
 client.giveaways = new Map();
 
-// ================= INTERACTIONS =================
+// ---------------------- READY ----------------------
+client.once("ready", () => console.log(🤖 Logged in as ${client.user.tag}));
+
+// ---------------------- INTERACTION HANDLER ----------------------
 client.on("interactionCreate", async interaction => {
+if (interaction.isChatInputCommand()) {
+// ----------------- PANEL -----------------
+if (interaction.commandName === "panel") {
+if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
-    if (interaction.isChatInputCommand()) {
+const targetChannel = interaction.options.getChannel("channel");  
+        const image = interaction.options.getString("image") || null;  
 
-        // PANEL
-        if (interaction.commandName === "panel") {
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-                return interaction.reply({ content: "Admin only", ephemeral: true });
+        const panelEmbed = {  
+            title: "QPVA Support Centre!",  
+            description: `Welcome to the Akasa Air Virtual Support Center! ✈️
 
-            const channel = interaction.options.getChannel("channel");
+Our dedicated <@&${SUPPORT_ROLE_ID}> is ready to help!
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("create_general").setLabel("📩 General Support").setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId("create_recruit").setLabel("📝 Recruitment").setStyle(ButtonStyle.Secondary)
-            );
+Please select a category below to get started.`,
+color: 0x00FF00,
+image: image ? { url: image } : undefined
+};
 
-            await channel.send({ content: "Open a ticket below:", components: [row] });
-            return interaction.reply({ content: "Panel sent!", ephemeral: true });
-        }
+const row = new ActionRowBuilder().addComponents(  
+            new ButtonBuilder().setCustomId("create_general").setLabel("📩 General Support").setStyle(ButtonStyle.Primary),  
+            new ButtonBuilder().setCustomId("create_recruit").setLabel("📝 Recruitment").setStyle(ButtonStyle.Secondary)  
+        );  
 
-        // STATUS
-        if (interaction.commandName === "status") {
-            if (interaction.user.id !== OWNER_ID)
-                return interaction.reply({ content: "Owner only", ephemeral: true });
+        await targetChannel.send({ embeds: [panelEmbed], components: [row] });  
+        return interaction.reply({ content: `✅ Panel sent in ${targetChannel}`, ephemeral: true });  
+    }  
 
-            const type = interaction.options.getString("type");
-            const text = interaction.options.getString("text");
+    // ----------------- STATUS -----------------  
+    if (interaction.commandName === "status") {  
+        if (interaction.user.id !== OWNER_ID)  
+            return interaction.reply({ content: "❌ Only bot owner can use this.", ephemeral: true });  
 
-            client.user.setActivity(text, { type: ActivityType[type] });
-            return interaction.reply({ content: "Status updated", ephemeral: true });
-        }
+        const type = interaction.options.getString("type");  
+        const text = interaction.options.getString("text");  
+        let activityType = ActivityType.Playing;  
+        if (type === "WATCHING") activityType = ActivityType.Watching;  
+        if (type === "LISTENING") activityType = ActivityType.Listening;  
+        if (type === "STREAMING") activityType = ActivityType.Streaming;  
 
-        // GIVEAWAY
-        if (interaction.commandName === "giveaway") {
-            const title = interaction.options.getString("title");
-            const desc = interaction.options.getString("description");
-            const prize = interaction.options.getString("prize");
-            const channel = interaction.options.getChannel("channel");
-            const end = new Date(interaction.options.getString("ends_on"));
+        client.user.setActivity(text, { type: activityType, url: type === "STREAMING" ? "https://twitch.tv/discord" : undefined });  
+        return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });  
+    }  
 
-            const participants = new Set();
+    // ----------------- GIVEAWAY -----------------  
+    if (interaction.commandName === "giveaway") {  
+        const title = interaction.options.getString("title");  
+        const description = interaction.options.getString("description");  
+        const prize = interaction.options.getString("prize");  
+        const channel = interaction.options.getChannel("channel");  
+        const image = interaction.options.getString("image") || null;  
+        const mention = interaction.options.getString("mention") || null;  
+        const endsOn = interaction.options.getString("ends_on");  
 
-            const embed = new EmbedBuilder()
-                .setTitle(title)
-                .setDescription(desc)
-                .addFields(
-                    { name: "Prize", value: prize, inline: true },
-                    { name: "Ends", value: end.toString(), inline: true }
-                )
-                .setColor(0xFFD700);
+        const endDate = new Date(endsOn);  
+        if (isNaN(endDate)) return interaction.reply({ content: "❌ Invalid date format. Use YYYY-MM-DD HH:mm", ephemeral: true });  
 
-            const msg = await channel.send({ embeds: [embed] });
+        const participants = new Set();  
+        const embed = {  
+            title,  
+            description,  
+            color: 0xFFD700,  
+            image: image ? { url: image } : undefined,  
+            fields: [  
+                { name: "Prize", value: prize, inline: true },  
+                { name: "Ends On", value: endsOn, inline: true },  
+                { name: "Participants", value: "None" }  
+            ]  
+        };  
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`join_${msg.id}`).setLabel("Join").setStyle(ButtonStyle.Success)
-            );
+        const msg = await channel.send({ content: mention && mention !== "everyone" ? `<@&${mention}>` : mention === "everyone" ? "@everyone" : null, embeds: [embed] });  
+        const buttons = new ActionRowBuilder().addComponents(  
+            new ButtonBuilder().setCustomId(`giveaway_${msg.id}_join`).setLabel("✅ Join").setStyle(ButtonStyle.Success),  
+            new ButtonBuilder().setCustomId(`giveaway_${msg.id}_leave`).setLabel("❌ Leave").setStyle(ButtonStyle.Danger)  
+        );  
+        await msg.edit({ components: [buttons] });  
+        client.giveaways.set(msg.id, { participants, prize, endsOn });  
 
-            await msg.edit({ components: [row] });
-            client.giveaways.set(msg.id, participants);
+        setTimeout(async () => {  
+            const data = client.giveaways.get(msg.id);  
+            if (!data) return;  
+            const participantsArr = [...data.participants];  
+            let winnerText = "No participants!";  
+            if (participantsArr.length > 0) {  
+                const winner = participantsArr[Math.floor(Math.random() * participantsArr.length)];  
+                winnerText = `<@${winner}> won the prize! 🎉`;  
+            }  
+            const endEmbed = {  
+                title: `${title} - Ended`,  
+                description,  
+                color: 0x00FF00,  
+                image: image ? { url: image } : undefined,  
+                fields: [  
+                    { name: "Prize", value: prize, inline: true },  
+                    { name: "Winner", value: winnerText }  
+                ]  
+            };  
+            await msg.edit({ embeds: [endEmbed], components: [] });  
+            client.giveaways.delete(msg.id);  
+        }, endDate.getTime() - Date.now());  
 
-            setTimeout(async () => {
-                const users = [...participants];
-                const winner = users.length ? `<@${users[Math.floor(Math.random()*users.length)]}>` : "No participants";
-                await channel.send(`🎉 Giveaway ended! Winner: ${winner}`);
-                client.giveaways.delete(msg.id);
-            }, end.getTime() - Date.now());
+        return interaction.reply({ content: `✅ Giveaway started in ${channel}!`, ephemeral: true });  
+    }  
+}  
 
-            return interaction.reply({ content: "Giveaway started!", ephemeral: true });
-        }
-    }
+// ---------------------- BUTTON INTERACTIONS ----------------------  
+if (interaction.isButton()) {  
+    const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);  
 
-    // BUTTONS
-    if (interaction.isButton()) {
+    // ----------------- TICKET PANEL -----------------  
+    if (interaction.customId === "create_general" || interaction.customId === "create_recruit") {  
+        const category = interaction.guild.channels.cache.get(CATEGORY_ID);  
+        const isRecruit = interaction.customId === "create_recruit";  
+        const channelName = isRecruit ? `recruitment-${interaction.user.username}` : `ticket-${interaction.user.username}`;  
 
-        // Giveaway join
-        if (interaction.customId.startsWith("join_")) {
-            const id = interaction.customId.split("_")[1];
-            const data = client.giveaways.get(id);
-            if (!data) return interaction.reply({ content: "Ended", ephemeral: true });
+        const channel = await interaction.guild.channels.create({  
+            name: channelName,  
+            type: ChannelType.GuildText,  
+            parent: category.id,  
+            permissionOverwrites: [  
+                { id: interaction.guild.roles.everyone, deny: ['ViewChannel'] },  
+                { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },  
+                { id: SUPPORT_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },  
+                { id: RECRUITER_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }  
+            ]  
+        });  
 
-            data.add(interaction.user.id);
-            return interaction.reply({ content: "You joined!", ephemeral: true });
-        }
+        const rolePing = isRecruit ? `<@&${RECRUITER_ROLE_ID}>` : `<@&${SUPPORT_ROLE_ID}>`;  
 
-        // Ticket creation
-        if (interaction.customId === "create_general" || interaction.customId === "create_recruit") {
+        const ticketEmbed = {  
+            title: isRecruit ? "📝 Recruitment Ticket" : "🎫 Support Ticket",  
+            description: isRecruit ? "Thank you for joining! Our Recruitment Team will contact you shortly." :  
+                                     "Thank you for contacting us. A support agent will be with you shortly.",  
+            color: isRecruit ? 0x00AAFF : 0x00FF00,  
+            fields: [  
+                { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },  
+                { name: "Claimed by", value: "None", inline: true }  
+            ],  
+            timestamp: new Date()  
+        };  
 
-            const isRecruit = interaction.customId === "create_recruit";
+        const buttons = new ActionRowBuilder().addComponents(  
+            new ButtonBuilder().setCustomId(`claim_ticket_${channel.id}`).setLabel("🛡 Claim Ticket").setStyle(ButtonStyle.Success),  
+            new ButtonBuilder().setCustomId(`close_ticket_${channel.id}`).setLabel("❌ Close Ticket").setStyle(ButtonStyle.Danger),  
+            new ButtonBuilder().setCustomId(`delete_ticket_${channel.id}`).setLabel("🗑 Delete Ticket").setStyle(ButtonStyle.Secondary)  
+        );  
 
-            const channel = await interaction.guild.channels.create({
-                name: `${isRecruit ? "recruitment" : "ticket"}-${interaction.user.username}`,
-                type: ChannelType.GuildText,
-                parent: CATEGORY_ID
-            });
+        await channel.send({ content: rolePing, embeds: [ticketEmbed], components: [buttons] });  
 
-            await channel.send(`${isRecruit ? `<@&${RECRUITER_ROLE_ID}>` : `<@&${SUPPORT_ROLE_ID}>`} Ticket opened by ${interaction.user}`);
+        if (logChannel) logChannel.send({ embeds: [{ title: isRecruit ? "📝 Recruitment Ticket Created" : "🎫 Ticket Created", description: `Ticket **${channel.name}** created by <@${interaction.user.id}>`, color: isRecruit ? 0x00AAFF : 0x00FF00, timestamp: new Date() }] });  
 
-            return interaction.reply({ content: `Ticket created: ${channel}`, ephemeral: true });
-        }
-    }
+        return interaction.reply({ content: `✅ ${isRecruit ? "Recruitment" : "Support"} ticket created: ${channel}`, ephemeral: true });  
+    }  
+
+    // ----------------- CLAIM / CLOSE / DELETE -----------------  
+    const [action, , channelId] = interaction.customId.split("_");  
+    if (!channelId) return;  
+    const ticketChannel = interaction.guild.channels.cache.get(channelId);  
+    if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });  
+    const ticketMessage = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);  
+    if (!ticketMessage) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });  
+
+    // CLAIM  
+    if (action === "claim") {  
+        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can claim tickets.", ephemeral: true });  
+        const embed = ticketMessage.embeds[0].toJSON();  
+        embed.fields[1].value = `<@${interaction.user.id}>`;  
+        await ticketMessage.edit({ embeds: [embed] });  
+        return interaction.reply({ content: `✅ You claimed this ticket.`, ephemeral: true });  
+    }  
+
+    // CLOSE  
+    if (action === "close") {  
+        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can close tickets.", ephemeral: true });  
+        const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });  
+        await ticketMessage.edit({ components: disabled });  
+
+        await ticketChannel.permissionOverwrites.edit(ticketChannel.guild.roles.everyone, { ViewChannel: false });  
+        await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });  
+        if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });  
+
+        // Send delete button  
+        const deleteRow = new ActionRowBuilder().addComponents(  
+            new ButtonBuilder().setCustomId(`delete_ticket_${ticketChannel.id}`).setLabel("🗑 Delete Ticket").setStyle(ButtonStyle.Danger)  
+        );  
+        await ticketChannel.send({ content: "Ticket closed. Staff can delete the ticket:", components: [deleteRow] });  
+
+        return interaction.reply({ content: "✅ Ticket closed successfully.", ephemeral: true });  
+    }  
+
+    // DELETE  
+    if (action === "delete") {  
+        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can delete tickets.", ephemeral: true });  
+        if (logChannel) logChannel.send({ embeds: [{ title: "🗑 Ticket Deleted", description: `Ticket **${ticketChannel.name}** deleted by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });  
+        await ticketChannel.delete();  
+    }  
+
+    // ----------------- GIVEAWAY BUTTONS -----------------  
+    if (interaction.customId.startsWith("giveaway_")) {  
+        const parts = interaction.customId.split("_");  
+        const msgId = parts[1];  
+        const act = parts[2];  
+        const data = client.giveaways.get(msgId);  
+        if (!data) return interaction.reply({ content: "❌ Giveaway not found.", ephemeral: true });  
+
+        if (act === "join") data.participants.add(interaction.user.id);  
+        else if (act === "leave") data.participants.delete(interaction.user.id);  
+
+        const embed = interaction.message.embeds[0].toJSON();  
+        embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";  
+        await interaction.update({ embeds: [embed] });  
+    }  
+}
+
 });
 
+// ---------------------- LOGIN ----------------------
 client.login(TOKEN);
