@@ -1,25 +1,29 @@
-const {
-  Client,
-  GatewayIntentBits,
+const { 
+  Client, 
+  GatewayIntentBits, 
   PermissionsBitField,
-  REST,
+  SlashCommandBuilder, 
+  REST, 
   Routes,
-  SlashCommandBuilder,
-  ChannelType,
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  AttachmentBuilder
+  ChannelType
 } = require('discord.js');
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
-const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
-const PANEL_IMAGE_URL = process.env.PANEL_IMAGE_URL;
+
+// Role IDs for ticket categories
+const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
+const RECRUIT_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
+const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
 
 const client = new Client({
   intents: [
@@ -30,14 +34,14 @@ const client = new Client({
   ]
 });
 
-/* ================= TICKET DATA ================= */
+/* ================= TICKET STORAGE ================= */
 let ticketCounter = 0;
 const activeTickets = new Map(); // userId -> channelId
-const ticketData = new Map(); // channelId -> data
+const ticketData = new Map(); // channelId -> { category, openedBy, claimedBy }
 
 /* ================= SLASH COMMANDS ================= */
 const commands = [
-
+  // ----- Old Commands -----
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Check bot latency'),
@@ -69,51 +73,19 @@ const commands = [
         .setDescription('User to ban')
         .setRequired(true)),
 
+  // ----- Ticket Commands -----
   new SlashCommandBuilder()
-    .setName('panel')
-    .setDescription('Send support ticket panel')
-    .addChannelOption(option =>
-      option.setName('channel')
-        .setDescription('Channel to send panel')
-        .setRequired(true)),
+    .setName('ticketpanel')
+    .setDescription('Send the QPVA support ticket panel')
+    .addChannelOption(opt => 
+      opt.setName('channel')
+        .setDescription('Where to send the panel')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
-    .setName('status')
-    .setDescription('Set bot status')
-    .addStringOption(option =>
-      option.setName('type')
-        .setDescription('Status type')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Playing', value: 'PLAYING' },
-          { name: 'Watching', value: 'WATCHING' },
-          { name: 'Listening', value: 'LISTENING' },
-          { name: 'Streaming', value: 'STREAMING' }
-        ))
-    .addStringOption(option =>
-      option.setName('text')
-        .setDescription('Status text')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('role')
-    .setDescription('Add or remove a role from a user')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('Target user')
-        .setRequired(true))
-    .addRoleOption(option =>
-      option.setName('role')
-        .setDescription('Role to add/remove')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('action')
-        .setDescription('Add or remove role')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Add', value: 'add' },
-          { name: 'Remove', value: 'remove' }
-        ))
+    .setName('closeticket')
+    .setDescription('Close the current ticket')
 ].map(cmd => cmd.toJSON());
 
 /* ================= READY ================= */
@@ -121,175 +93,192 @@ client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-/* ================= WELCOME SYSTEM ================= */
-client.on('guildMemberAdd', member => {
-  const channel = member.guild.systemChannel;
-  if (channel) {
-    channel.send(`🎉 Welcome ${member.user} to **${member.guild.name}**!`);
-  }
-});
-
 /* ================= INTERACTION HANDLER ================= */
 client.on('interactionCreate', async interaction => {
+  try {
+    // ----------------- Slash Commands -----------------
+    if (interaction.isChatInputCommand()) {
 
-try {
+      // ----- PING -----
+      if (interaction.commandName === 'ping') {
+        return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
+      }
 
-if (!interaction.isChatInputCommand() && !interaction.isStringSelectMenu() && !interaction.isButton()) return;
+      // ----- SAY -----
+      if (interaction.commandName === 'say') {
+        const text = interaction.options.getString('text');
+        const channel = interaction.options.getChannel('channel') || interaction.channel;
+        await channel.send(text);
+        return interaction.reply({ content: `✅ Message sent to ${channel}`, ephemeral: true });
+      }
 
-/* ===== NORMAL COMMANDS ===== */
-if (interaction.isChatInputCommand()) {
+      // ----- KICK -----
+      if (interaction.commandName === 'kick') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
+          return interaction.reply({ content: '❌ No permission.', ephemeral: true });
 
-  // PING
-  if (interaction.commandName === 'ping') {
-    return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
-  }
+        const user = interaction.options.getUser('user');
+        const member = interaction.guild.members.cache.get(user.id);
+        if (member) {
+          await member.kick();
+          return interaction.reply(`👢 Kicked ${user.tag}`);
+        }
+      }
 
-  // SAY
-  if (interaction.commandName === 'say') {
-    const text = interaction.options.getString('text');
-    const channel = interaction.options.getChannel('channel') || interaction.channel;
+      // ----- BAN -----
+      if (interaction.commandName === 'ban') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
+          return interaction.reply({ content: '❌ No permission.', ephemeral: true });
 
-    await channel.send(text);
-    return interaction.reply({ content: `✅ Message sent to ${channel}`, ephemeral: true });
-  }
+        const user = interaction.options.getUser('user');
+        const member = interaction.guild.members.cache.get(user.id);
+        if (member) {
+          await member.ban();
+          return interaction.reply(`🔨 Banned ${user.tag}`);
+        }
+      }
 
-  // KICK
-  if (interaction.commandName === 'kick') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
-      return interaction.reply({ content: '❌ No permission.', ephemeral: true });
+      // ----- TICKET PANEL -----
+      if (interaction.commandName === 'ticketpanel') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+          return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
-    const user = interaction.options.getUser('user');
-    const member = interaction.guild.members.cache.get(user.id);
+        const channel = interaction.options.getChannel('channel');
 
-    if (member) {
-      await member.kick();
-      return interaction.reply(`👢 Kicked ${user.tag}`);
+        const panelEmbed = new EmbedBuilder()
+          .setTitle("🎫 QPVA Support Centre ✈️")
+          .setDescription(
+`Welcome to the Akasa Air Virtual Support Center!
+Need assistance with any Akasa Air service? You’re in the right place! Our dedicated <@&${GENERAL_ROLE_ID}> is here to help you quickly and efficiently.
+
+Please select a category below to create a ticket:
+
+- General Support
+- Recruitments
+- Executive Team Support
+- PIREP Support
+
+We’re committed to making your journey with Akasa Air smooth and stress-free! 🌍✈️`
+          )
+          .setColor(0xff6600);
+
+        const row = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("ticket_select")
+            .setPlaceholder("🎟 Select a support category")
+            .addOptions([
+              { label: "General Support", value: "general" },
+              { label: "Recruitments", value: "recruit" },
+              { label: "Executive Team Support", value: "exec" },
+              { label: "PIREP Support", value: "pirep" }
+            ])
+        );
+
+        await channel.send({ embeds: [panelEmbed], components: [row] });
+        return interaction.reply({ content: "✅ Ticket panel sent.", ephemeral: true });
+      }
+
+      // ----- CLOSE TICKET -----
+      if (interaction.commandName === 'closeticket') {
+        const data = ticketData.get(interaction.channel.id);
+        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
+
+        // Delete ticket channel
+        ticketData.delete(interaction.channel.id);
+        activeTickets.delete(data.openedBy);
+        return interaction.channel.delete();
+      }
     }
-  }
 
-  // BAN
-  if (interaction.commandName === 'ban') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-      return interaction.reply({ content: '❌ No permission.', ephemeral: true });
+    // ----------------- Ticket Creation -----------------
+    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
 
-    const user = interaction.options.getUser('user');
-    const member = interaction.guild.members.cache.get(user.id);
+      if (activeTickets.has(interaction.user.id))
+        return interaction.reply({ content: "❌ You already have an open ticket.", ephemeral: true });
 
-    if (member) {
-      await member.ban();
-      return interaction.reply(`🔨 Banned ${user.tag}`);
+      ticketCounter++;
+      const ticketNumber = String(ticketCounter).padStart(3, "0");
+
+      const categoryMap = {
+        general: { name: "General Support", role: GENERAL_ROLE_ID },
+        recruit: { name: "Recruitments", role: RECRUITER_ROLE_ID },
+        exec: { name: "Executive Team Support", role: EXEC_ROLE_ID },
+        pirep: { name: "PIREP Support", role: PIREP_ROLE_ID }
+      };
+
+      const selected = categoryMap[interaction.values[0]];
+
+      const channel = await interaction.guild.channels.create({
+        name: `ticket-${ticketNumber}`,
+        type: ChannelType.GuildText,
+        parent: CATEGORY_ID,
+        permissionOverwrites: [
+          { id: interaction.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+          { id: selected.role, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+        ]
+      });
+
+      activeTickets.set(interaction.user.id, channel.id);
+      ticketData.set(channel.id, { category: selected.name, openedBy: interaction.user.id, claimedBy: null });
+
+      const embed = new EmbedBuilder()
+        .setTitle(selected.name)
+        .setDescription(`Thanks for creating a ticket! Our staff team will contact you shortly.`)
+        .addFields({ name: "Opened by", value: `<@${interaction.user.id}>` })
+        .setColor(0x2ecc71);
+
+      const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("claim").setLabel("Claim").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("adduser").setLabel("Add User").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("removeuser").setLabel("Remove User").setStyle(ButtonStyle.Secondary)
+      );
+
+      await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
+      return interaction.reply({ content: `🎟 Ticket created: ${channel}`, ephemeral: true });
     }
-  }
 
-  // PANEL
-  if (interaction.commandName === 'panel') {
+    // ----------------- Ticket Buttons -----------------
+    if (interaction.isButton()) {
+      const data = ticketData.get(interaction.channel.id);
+      if (!data) return interaction.reply({ content: "❌ Not a ticket channel.", ephemeral: true });
 
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-      return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+      const memberRoles = interaction.member.roles.cache;
+      const allowedRoles = [GENERAL_ROLE_ID, RECRUITER_ROLE_ID, EXEC_ROLE_ID, PIREP_ROLE_ID];
+      const isStaff = memberRoles.some(r => allowedRoles.includes(r.id));
+      if (!isStaff) return interaction.reply({ content: "❌ Only staff can use this.", ephemeral: true });
 
-    const channel = interaction.options.getChannel('channel');
+      if (interaction.customId === "claim") {
+        data.claimedBy = interaction.user.id;
+        await interaction.channel.setName(`claimed-${interaction.channel.name}`);
+        return interaction.update({ content: "✅ Ticket claimed.", components: [] });
+      }
 
-    const embed = new EmbedBuilder()
-      .setTitle("Akasa Air Virtual Support Center ✈️")
-      .setDescription(
-`Welcome to the Akasa Air Virtual Support Center! ✈️
-Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&${SUPPORT_ROLE_ID}> is available to help you quickly and efficiently.
+      if (interaction.customId === "adduser") {
+        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true });
+        return interaction.reply({ content: `✅ You were added to the ticket.`, ephemeral: true });
+      }
 
-Please select a category below to get started, and we’ll connect you with the right support right away.
-
-We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`
-      )
-      .setColor(0xff6600);
-
-    if (PANEL_IMAGE_URL) embed.setImage(PANEL_IMAGE_URL);
-
-    const row = new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId("ticket_select")
-        .setPlaceholder("🎟 Select a support category")
-        .addOptions([
-          { label: "General Support", value: "general" },
-          { label: "Recruitments", value: "recruit" },
-          { label: "PIREP Support", value: "pirep" },
-          { label: "Executive Team Support", value: "executive" },
-          { label: "Routes Support", value: "routes" }
-        ])
-    );
-
-    await channel.send({ embeds: [embed], components: [row] });
-
-    return interaction.reply({ content: "✅ Panel sent.", ephemeral: true });
-  }
-
-  // STATUS
-  if (interaction.commandName === 'status') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-      return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
-
-    const type = interaction.options.getString('type');
-    const text = interaction.options.getString('text');
-
-    let activityType = 0; // default playing
-    if (type === 'WATCHING') activityType = 3;
-    if (type === 'LISTENING') activityType = 2;
-    if (type === 'STREAMING') activityType = 1;
-
-    await client.user.setActivity(text, { type: activityType, url: type === 'STREAMING' ? 'https://twitch.tv/discord' : undefined });
-    return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
-  }
-
-  // ROLE ADD/REMOVE
-  if (interaction.commandName === 'role') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageRoles))
-      return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
-
-    const user = interaction.options.getUser('user');
-    const role = interaction.options.getRole('role');
-    const action = interaction.options.getString('action');
-
-    const member = interaction.guild.members.cache.get(user.id);
-
-    if (!member) return interaction.reply({ content: '❌ User not found.', ephemeral: true });
-
-    if (action === 'add') {
-      await member.roles.add(role);
-      return interaction.reply({ embeds: [
-        new EmbedBuilder()
-          .setDescription(`✅ Added role <@&${role.id}> to <@${user.id}>`)
-          .setColor(0x2ecc71)
-      ]});
-    } else {
-      await member.roles.remove(role);
-      return interaction.reply({ embeds: [
-        new EmbedBuilder()
-          .setDescription(`✅ Removed role <@&${role.id}> from <@${user.id}>`)
-          .setColor(0xe74c3c)
-      ]});
+      if (interaction.customId === "removeuser") {
+        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: false, SendMessages: false });
+        return interaction.reply({ content: `✅ You were removed from the ticket.`, ephemeral: true });
+      }
     }
+
+  } catch (err) {
+    console.error(err);
   }
-
-}
-
-/* ===== TICKET INTERACTIONS ===== */
-// (Ticket creation, claim, close remain exactly as in your previous advanced ticket system)
-// Copy your ticket system from previous code here without changes
-// Ensure ticketCounter, activeTickets, ticketData are used exactly as above
-
-} catch (err) {
-  console.error(err);
-}
-
 });
 
 /* ================= REGISTER COMMANDS ================= */
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
   console.log("✅ Slash commands registered");
 }
-registerCommands();
 
+registerCommands();
 client.login(TOKEN);
