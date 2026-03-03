@@ -18,7 +18,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
 
-// Role IDs for ticket categories
+// Role IDs
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
 const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
@@ -35,12 +35,12 @@ const client = new Client({
 
 /* ================= TICKET STORAGE ================= */
 let ticketCounter = 0;
-const activeTickets = new Map(); // userId -> channelId
-const ticketData = new Map(); // channelId -> { category, openedBy, claimedBy }
+const activeTickets = new Map();
+const ticketData = new Map();
 
 /* ================= SLASH COMMANDS ================= */
 const commands = [
-  // ----- Old Commands -----
+  // Old commands
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Check bot latency'),
@@ -48,39 +48,27 @@ const commands = [
   new SlashCommandBuilder()
     .setName('say')
     .setDescription('Make the bot say something')
-    .addStringOption(option =>
-      option.setName('text')
-        .setDescription('Message to send')
-        .setRequired(true))
-    .addChannelOption(option =>
-      option.setName('channel')
-        .setDescription('Optional channel to send message')),
+    .addStringOption(opt =>
+      opt.setName('text').setDescription('Message to send').setRequired(true))
+    .addChannelOption(opt =>
+      opt.setName('channel').setDescription('Optional channel to send message')),
 
   new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Kick a member')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('User to kick')
-        .setRequired(true)),
+    .addUserOption(opt => opt.setName('user').setDescription('User to kick').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Ban a member')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('User to ban')
-        .setRequired(true)),
+    .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true)),
 
-  // ----- Ticket Commands -----
+  // Ticket commands
   new SlashCommandBuilder()
     .setName('ticketpanel')
-    .setDescription('Send the QPVA support ticket panel')
-    .addChannelOption(opt => 
-      opt.setName('channel')
-        .setDescription('Where to send the panel')
-        .setRequired(true)
-    ),
+    .setDescription('Send the ticket panel')
+    .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send panel').setRequired(true))
+    .addStringOption(opt => opt.setName('image').setDescription('Optional panel image URL')),
 
   new SlashCommandBuilder()
     .setName('closeticket')
@@ -91,39 +79,34 @@ const commands = [
     .setDescription('Delete the current ticket'),
 
   new SlashCommandBuilder()
+    .setName('reopenticket')
+    .setDescription('Reopen a closed ticket'),
+
+  new SlashCommandBuilder()
     .setName('ticketuser')
     .setDescription('Add or remove a user from a ticket')
-    .addUserOption(opt =>
-      opt.setName('user')
-        .setDescription('User to add/remove')
-        .setRequired(true))
-    .addStringOption(opt =>
-      opt.setName('action')
-        .setDescription('Add or remove the user')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Add', value: 'add' },
-          { name: 'Remove', value: 'remove' }
-        ))
+    .addUserOption(opt => opt.setName('user').setDescription('User to add/remove').setRequired(true))
+    .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true).addChoices(
+      { name: 'Add', value: 'add' },
+      { name: 'Remove', value: 'remove' }
+    ))
 ].map(cmd => cmd.toJSON());
 
 /* ================= READY ================= */
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
+client.once('ready', () => console.log(`✅ Logged in as ${client.user.tag}`));
 
 /* ================= INTERACTION HANDLER ================= */
 client.on('interactionCreate', async interaction => {
   try {
-    // ----------------- Slash Commands -----------------
+    // ----- Slash Commands -----
     if (interaction.isChatInputCommand()) {
 
-      // ----- PING -----
+      // Ping
       if (interaction.commandName === 'ping') {
         return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
       }
 
-      // ----- SAY -----
+      // Say
       if (interaction.commandName === 'say') {
         const text = interaction.options.getString('text');
         const channel = interaction.options.getChannel('channel') || interaction.channel;
@@ -131,7 +114,7 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: `✅ Message sent to ${channel}`, ephemeral: true });
       }
 
-      // ----- KICK -----
+      // Kick
       if (interaction.commandName === 'kick') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
           return interaction.reply({ content: '❌ No permission.', ephemeral: true });
@@ -144,7 +127,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      // ----- BAN -----
+      // Ban
       if (interaction.commandName === 'ban') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
           return interaction.reply({ content: '❌ No permission.', ephemeral: true });
@@ -157,14 +140,15 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      // ----- TICKET PANEL -----
+      // Ticket panel
       if (interaction.commandName === 'ticketpanel') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
           return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
         const channel = interaction.options.getChannel('channel');
+        const image = interaction.options.getString('image');
 
-        const panelEmbed = new EmbedBuilder()
+        const embed = new EmbedBuilder()
           .setTitle("🎫 QPVA Support Centre ✈️")
           .setDescription(
 `Welcome to the Akasa Air Virtual Support Center!
@@ -179,7 +163,8 @@ Please select a category below to create a ticket:
 
 We’re committed to making your journey with Akasa Air smooth and stress-free! 🌍✈️`
           )
-          .setColor(0xff6600);
+          .setColor(0xff6600)
+          .setImage(image || null);
 
         const row = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
@@ -193,21 +178,20 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
             ])
         );
 
-        await channel.send({ embeds: [panelEmbed], components: [row] });
+        await channel.send({ embeds: [embed], components: [row] });
         return interaction.reply({ content: "✅ Ticket panel sent.", ephemeral: true });
       }
 
-      // ----- CLOSE TICKET -----
+      // Close ticket
       if (interaction.commandName === 'closeticket') {
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
 
-        // Lock channel
         await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: false });
         return interaction.reply({ content: "🔒 Ticket closed.", ephemeral: true });
       }
 
-      // ----- DELETE TICKET -----
+      // Delete ticket
       if (interaction.commandName === 'deleteticket') {
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
@@ -217,7 +201,16 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         await interaction.channel.delete();
       }
 
-      // ----- ADD/REMOVE USER -----
+      // Reopen ticket
+      if (interaction.commandName === 'reopenticket') {
+        const data = ticketData.get(interaction.channel.id);
+        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
+
+        await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: true });
+        return interaction.reply({ content: "✅ Ticket reopened.", ephemeral: true });
+      }
+
+      // Add/remove user
       if (interaction.commandName === 'ticketuser') {
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
@@ -227,22 +220,26 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
 
         if (action === 'add') {
           await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true });
-          return interaction.reply({ content: `✅ Added ${user.tag} to the ticket.`, ephemeral: true });
+          const embed = new EmbedBuilder()
+            .setDescription(`✅ <@${user.id}> has been added to the ticket.`)
+            .setColor(0x2ecc71);
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
         if (action === 'remove') {
           await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: false, SendMessages: false });
-          return interaction.reply({ content: `✅ Removed ${user.tag} from the ticket.`, ephemeral: true });
+          const embed = new EmbedBuilder()
+            .setDescription(`✅ <@${user.id}> has been removed from the ticket.`)
+            .setColor(0xe74c3c);
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         }
       }
-
     }
 
-    // ----------------- Ticket Creation -----------------
+    // Ticket creation select menu
     if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
-
       if (activeTickets.has(interaction.user.id))
-        return interaction.reply({ content: "❌ You already have an open ticket.", ephemeral: true });
+        return interaction.reply({ content: "❌ You already have a ticket.", ephemeral: true });
 
       await interaction.deferReply({ ephemeral: true });
 
@@ -291,7 +288,7 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
     }
 
-    // ----------------- Ticket Buttons -----------------
+    // Ticket buttons
     if (interaction.isButton()) {
       const data = ticketData.get(interaction.channel.id);
       if (!data) return interaction.reply({ content: "❌ Not a ticket channel.", ephemeral: true });
