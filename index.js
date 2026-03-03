@@ -1,4 +1,3 @@
-// index.js
 const {
   Client,
   GatewayIntentBits,
@@ -14,14 +13,12 @@ const {
 } = require("discord.js");
 const express = require("express");
 
-// ENV VARIABLES
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID; // For instant slash commands
-const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID; // Staff role
-const CATEGORY_ID = process.env.CATEGORY_ID; // Tickets category
-const OWNER_ID = process.env.OWNER_ID; // Bot owner
-
+const GUILD_ID = process.env.GUILD_ID;
+const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID;
+const OWNER_ID = process.env.OWNER_ID;
 const PORT = process.env.PORT || 3000;
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID) {
@@ -29,15 +26,13 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OW
   process.exit(1);
 }
 
-// CLIENT
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// WEB SERVER (Railway)
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 
-// SLASH COMMANDS
+// Slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName("panel")
@@ -59,47 +54,46 @@ const commands = [
   new SlashCommandBuilder()
     .setName("createevent")
     .setDescription("Create a new event")
-    // REQUIRED first
     .addStringOption(opt => opt.setName("title").setDescription("Event title").setRequired(true))
     .addStringOption(opt => opt.setName("description").setDescription("Event description").setRequired(true))
     .addChannelOption(opt => opt.setName("channel").setDescription("Channel to post event").setRequired(true))
     .addStringOption(opt => opt.setName("start").setDescription("Start time YYYY-MM-DD HH:mm").setRequired(true))
     .addStringOption(opt => opt.setName("end").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))
-    // OPTIONAL after required
     .addStringOption(opt => opt.setName("image").setDescription("Optional event image URL"))
     .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'"))
 ].map(cmd => cmd.toJSON());
 
-// REGISTER COMMANDS IN GUILD (for instant)
-client.once("ready", async () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
+// Clear old commands to prevent duplicates
+(async () => {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   try {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+    console.log("✅ Cleared old guild commands to prevent duplicates");
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log("✅ Slash commands registered (guild only for instant use)");
-  } catch (err) {
-    console.error(err);
-  }
-});
+    console.log("✅ Registered fresh commands");
+  } catch (err) { console.error(err); }
+})();
 
-// EVENT MESSAGES
+// Event messages storage
 client.eventMessages = new Map();
 
-// INTERACTION HANDLER
+client.on("ready", () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
+
+// Interaction handler
 client.on("interactionCreate", async interaction => {
   if (interaction.isChatInputCommand()) {
-    // -------- TICKET PANEL --------
+    // --- PANEL ---
     if (interaction.commandName === "panel") {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
         return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
       const image = interaction.options.getString("image");
-
       const createBtn = new ButtonBuilder()
         .setCustomId("create_ticket")
         .setLabel("🎟 Create Ticket")
         .setStyle(ButtonStyle.Primary);
-
       const row = new ActionRowBuilder().addComponents(createBtn);
 
       return interaction.reply({
@@ -109,14 +103,13 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    // -------- OWNER STATUS --------
+    // --- STATUS ---
     if (interaction.commandName === "status") {
       if (interaction.user.id !== OWNER_ID)
         return interaction.reply({ content: "❌ Only bot owner can use this.", ephemeral: true });
 
       const type = interaction.options.getString("type");
       const text = interaction.options.getString("text");
-
       let activityType = ActivityType.Playing;
       if (type === "WATCHING") activityType = ActivityType.Watching;
       if (type === "LISTENING") activityType = ActivityType.Listening;
@@ -126,7 +119,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
     }
 
-    // -------- CREATE EVENT --------
+    // --- CREATE EVENT ---
     if (interaction.commandName === "createevent") {
       const title = interaction.options.getString("title");
       const description = interaction.options.getString("description");
@@ -148,14 +141,15 @@ client.on("interactionCreate", async interaction => {
 
       const attendees = new Set();
       const notAttending = new Set();
-
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("attending_event").setLabel("✅ I'm Attending").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId("cant_attend_event").setLabel("❌ Can't Attend").setStyle(ButtonStyle.Danger)
       );
 
       const embed = {
-        title, description, color: 0x00FF00,
+        title,
+        description,
+        color: 0x00FF00,
         image: image ? { url: image } : undefined,
         fields: [
           { name: "Time", value: timeFormatted, inline: true },
@@ -172,9 +166,9 @@ client.on("interactionCreate", async interaction => {
     }
   }
 
-  // -------- BUTTONS --------
+  // --- BUTTONS ---
   if (interaction.isButton()) {
-    // ----- CREATE TICKET -----
+    // --- CREATE TICKET ---
     if (interaction.customId === "create_ticket") {
       const existing = interaction.guild.channels.cache.find(ch => ch.name === `ticket-${interaction.user.id}`);
       if (existing) return interaction.reply({ content: "❌ You already have a ticket!", ephemeral: true });
@@ -207,7 +201,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
     }
 
-    // ----- CLAIM TICKET -----
+    // --- CLAIM TICKET ---
     if (interaction.customId === "claim_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can claim.", ephemeral: true });
       const embed = interaction.message.embeds[0].toJSON();
@@ -215,7 +209,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.update({ embeds: [embed] });
     }
 
-    // ----- CLOSE TICKET -----
+    // --- CLOSE TICKET ---
     if (interaction.customId === "close_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can close.", ephemeral: true });
       const row = interaction.message.components[0].components;
@@ -225,7 +219,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.update({ components: [new ActionRowBuilder().addComponents(row)] });
     }
 
-    // ----- REOPEN TICKET -----
+    // --- REOPEN TICKET ---
     if (interaction.customId === "reopen_ticket") {
       if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can reopen.", ephemeral: true });
       const row = interaction.message.components[0].components;
@@ -235,7 +229,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.update({ components: [new ActionRowBuilder().addComponents(row)] });
     }
 
-    // ----- EVENT BUTTONS -----
+    // --- EVENT BUTTONS ---
     if (client.eventMessages.has(interaction.message.id)) {
       const data = client.eventMessages.get(interaction.message.id);
       const embed = interaction.message.embeds[0].toJSON();
@@ -260,5 +254,4 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// LOGIN
 client.login(TOKEN);
