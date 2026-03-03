@@ -212,12 +212,15 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
                 reason: `Ticket created by ${interaction.user.tag}`
             });
 
-            let content = isRecruit ? `<@&${RECRUITER_ROLE_ID}>` : "";
+            // ✅ Ping correct role
+            let content;
+            if (isRecruit) content = `<@&${RECRUITER_ROLE_ID}>`;
+            else content = `<@&${SUPPORT_ROLE_ID}>`; // ping staff
 
             const ticketEmbed = {
                 title: isRecruit ? "📝 Recruitment Ticket" : "🎫 Support Ticket",
                 description: isRecruit ? "Thank you for joining Akasa Air Virtual! Our Recruitment Team will contact you shortly." :
-                    "Thank you for contacting us. A support agent will be with you shortly.",
+                                         "Thank you for contacting us. A support agent will be with you shortly.",
                 color: isRecruit ? 0x00AAFF : 0x00FF00,
                 fields: [
                     { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },
@@ -248,19 +251,17 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
                 return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
 
-            await interaction.deferUpdate(); // prevent interaction failed
+            await interaction.deferUpdate();
             const ticketMessage = (await ticketChannel.messages.fetch()).find(m => m.components.length);
             if (!ticketMessage) return;
             const embed = ticketMessage.embeds[0].toJSON();
 
-            // --- CLAIM ---
             if (action === "claim") {
                 embed.fields[1].value = `<@${interaction.user.id}>`;
                 await ticketMessage.edit({ embeds: [embed] });
                 if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
             }
 
-            // --- CLOSE ---
             if (action === "close") {
                 const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
                 await ticketMessage.edit({ components: disabled });
@@ -270,7 +271,6 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
                 if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
             }
 
-            // --- REOPEN ---
             if (action === "reopen") {
                 const enabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(false)); return row; });
                 await ticketMessage.edit({ components: enabled });
