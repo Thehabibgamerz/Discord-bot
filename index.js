@@ -17,13 +17,14 @@ const express = require("express");
 // ENV VARIABLES
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID; // For instant slash commands
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID; // Staff role
-const CATEGORY_ID = process.env.CATEGORY_ID; // Ticket category ID
-const OWNER_ID = process.env.OWNER_ID; // Bot owner ID
-const GUILD_ID = process.env.GUILD_ID; // For instant command registration
+const CATEGORY_ID = process.env.CATEGORY_ID; // Tickets category
+const OWNER_ID = process.env.OWNER_ID; // Bot owner
+
 const PORT = process.env.PORT || 3000;
 
-if (!TOKEN || !CLIENT_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID || !GUILD_ID) {
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID) {
   console.log("❌ Missing environment variables!");
   process.exit(1);
 }
@@ -40,7 +41,8 @@ app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 const commands = [
   new SlashCommandBuilder()
     .setName("panel")
-    .setDescription("Send the ticket panel"),
+    .setDescription("Send the ticket panel")
+    .addStringOption(opt => opt.setName("image").setDescription("Optional ticket panel image URL")),
 
   new SlashCommandBuilder()
     .setName("status")
@@ -64,11 +66,11 @@ const commands = [
     .addStringOption(opt => opt.setName("start").setDescription("Start time YYYY-MM-DD HH:mm").setRequired(true))
     .addStringOption(opt => opt.setName("end").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))
     // OPTIONAL after required
-    .addStringOption(opt => opt.setName("image").setDescription("Optional image URL"))
+    .addStringOption(opt => opt.setName("image").setDescription("Optional event image URL"))
     .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'"))
 ].map(cmd => cmd.toJSON());
 
-// REGISTER COMMANDS FOR INSTANT USE (per guild)
+// REGISTER COMMANDS IN GUILD (for instant)
 client.once("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
   const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -80,7 +82,7 @@ client.once("ready", async () => {
   }
 });
 
-// EVENT MESSAGES STORAGE
+// EVENT MESSAGES
 client.eventMessages = new Map();
 
 // INTERACTION HANDLER
@@ -91,12 +93,20 @@ client.on("interactionCreate", async interaction => {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
         return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
+      const image = interaction.options.getString("image");
+
       const createBtn = new ButtonBuilder()
         .setCustomId("create_ticket")
         .setLabel("🎟 Create Ticket")
         .setStyle(ButtonStyle.Primary);
 
-      return interaction.reply({ content: "🎟 Ticket Panel — click below to create a ticket.", components: [new ActionRowBuilder().addComponents(createBtn)] });
+      const row = new ActionRowBuilder().addComponents(createBtn);
+
+      return interaction.reply({
+        content: "🎟 Ticket Panel — click below to create a ticket.",
+        components: [row],
+        embeds: image ? [{ image: { url: image }, color: 0x00FF00 }] : undefined
+      });
     }
 
     // -------- OWNER STATUS --------
@@ -106,6 +116,7 @@ client.on("interactionCreate", async interaction => {
 
       const type = interaction.options.getString("type");
       const text = interaction.options.getString("text");
+
       let activityType = ActivityType.Playing;
       if (type === "WATCHING") activityType = ActivityType.Watching;
       if (type === "LISTENING") activityType = ActivityType.Listening;
@@ -127,6 +138,9 @@ client.on("interactionCreate", async interaction => {
 
       const startDate = new Date(start);
       const endDate = new Date(end);
+      if (isNaN(startDate) || isNaN(endDate))
+        return interaction.reply({ content: "❌ Invalid date format. Use YYYY-MM-DD HH:mm", ephemeral: true });
+
       const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
       const startStr = `${startDate.toLocaleDateString('en-US', opts)} at ${startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
       const endStr = `${endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
@@ -145,8 +159,8 @@ client.on("interactionCreate", async interaction => {
         image: image ? { url: image } : undefined,
         fields: [
           { name: "Time", value: timeFormatted, inline: true },
-          { name: "Attending", value: "0", inline: true },
-          { name: "Can't Attend", value: "0", inline: true }
+          { name: "Attending", value: "None", inline: true },
+          { name: "Can't Attend", value: "None", inline: true }
         ]
       };
 
@@ -158,7 +172,7 @@ client.on("interactionCreate", async interaction => {
     }
   }
 
-  // -------- BUTTON INTERACTIONS --------
+  // -------- BUTTONS --------
   if (interaction.isButton()) {
     // ----- CREATE TICKET -----
     if (interaction.customId === "create_ticket") {
@@ -234,8 +248,13 @@ client.on("interactionCreate", async interaction => {
         data.notAttending.add(interaction.user.id);
       }
 
-      embed.fields[1].value = `${data.attendees.size}`;
-      embed.fields[2].value = `${data.notAttending.size}`;
+      embed.fields[1].value = data.attendees.size > 0
+        ? [...data.attendees].map(id => `<@${id}>`).join("\n")
+        : "None";
+      embed.fields[2].value = data.notAttending.size > 0
+        ? [...data.notAttending].map(id => `<@${id}>`).join("\n")
+        : "None";
+
       return interaction.update({ embeds: [embed] });
     }
   }
