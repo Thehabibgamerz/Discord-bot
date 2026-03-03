@@ -1,5 +1,5 @@
 // =============================
-// QPVA COMPLETE BOT - index.js
+// QPVA SUPPORT BOT - COMPLETE
 // =============================
 
 const {
@@ -19,7 +19,7 @@ const {
 
 const express = require("express");
 
-// ================= ENV VARIABLES =================
+// ================= ENV =================
 const {
     TOKEN,
     CLIENT_ID,
@@ -34,22 +34,6 @@ const {
     PORT
 } = process.env;
 
-if (
-    !TOKEN ||
-    !CLIENT_ID ||
-    !GUILD_ID ||
-    !CATEGORY_ID ||
-    !OWNER_ID ||
-    !GENERAL_ROLE_ID ||
-    !RECRUIT_ROLE_ID ||
-    !PIREP_ROLE_ID ||
-    !EXEC_ROLE_ID ||
-    !ROUTES_ROLE_ID
-) {
-    console.log("❌ Missing required environment variables!");
-    process.exit(1);
-}
-
 // ================= CLIENT =================
 const client = new Client({
     intents: [
@@ -59,194 +43,219 @@ const client = new Client({
     ]
 });
 
-client.giveaways = new Map();
-
-// ================= EXPRESS SERVER =================
+// ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("Bot is online ✅"));
-app.listen(PORT || 3000, () =>
-    console.log(`🌐 Web server running on ${PORT || 3000}`)
-);
+app.get("/", (req, res) => res.send("Bot Online ✅"));
+app.listen(PORT || 3000);
 
 // ================= SLASH COMMANDS =================
 const commands = [
 
     new SlashCommandBuilder()
         .setName("panel")
-        .setDescription("Send support ticket panel")
+        .setDescription("Send ticket support panel")
         .addChannelOption(o =>
             o.setName("channel")
-             .setDescription("Channel where panel will be sent")
-             .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName("status")
-        .setDescription("Change bot status (Owner only)")
+             .setDescription("Channel to send panel")
+             .setRequired(true))
         .addStringOption(o =>
-            o.setName("type")
-             .setDescription("Activity type")
-             .setRequired(true)
-             .addChoices(
-                { name: "Playing", value: "PLAYING" },
-                { name: "Watching", value: "WATCHING" },
-                { name: "Listening", value: "LISTENING" },
-                { name: "Streaming", value: "STREAMING" }
-             )
-        )
-        .addStringOption(o =>
-            o.setName("text")
-             .setDescription("Status text")
-             .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName("say")
-        .setDescription("Make bot say something")
-        .addChannelOption(o =>
-            o.setName("channel")
-             .setDescription("Channel to send message")
-             .setRequired(true)
-        )
-        .addStringOption(o =>
-            o.setName("message")
-             .setDescription("Message content")
-             .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName("giveaway")
-        .setDescription("Create a giveaway")
-        .addStringOption(o =>
-            o.setName("title")
-             .setDescription("Giveaway title")
-             .setRequired(true)
-        )
-        .addStringOption(o =>
-            o.setName("description")
-             .setDescription("Giveaway description")
-             .setRequired(true)
-        )
-        .addStringOption(o =>
-            o.setName("prize")
-             .setDescription("Prize for winner")
-             .setRequired(true)
-        )
-        .addChannelOption(o =>
-            o.setName("channel")
-             .setDescription("Channel to post giveaway")
-             .setRequired(true)
-        )
-        .addIntegerOption(o =>
-            o.setName("duration")
-             .setDescription("Duration in minutes")
-             .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName("reroll")
-        .setDescription("Reroll giveaway winner")
-        .addStringOption(o =>
-            o.setName("message_id")
-             .setDescription("Giveaway message ID")
-             .setRequired(true)
+            o.setName("image")
+             .setDescription("Optional image URL for embed")
+             .setRequired(false)
         )
 
 ].map(cmd => cmd.toJSON());
 
-// ================= REGISTER COMMANDS =================
+// ================= REGISTER =================
 (async () => {
-    try {
-        const rest = new REST({ version: "10" }).setToken(TOKEN);
-        console.log("🛠 Registering slash commands...");
-        await rest.put(
-            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-            { body: commands }
-        );
-        console.log("✅ Slash commands registered.");
-    } catch (err) {
-        console.error("❌ Failed to register commands:", err);
-    }
+    const rest = new REST({ version: "10" }).setToken(TOKEN);
+    await rest.put(
+        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+        { body: commands }
+    );
 })();
 
 // ================= READY =================
 client.on("ready", () => {
-    console.log(`🤖 Logged in as ${client.user.tag}`);
+    console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
 // ================= INTERACTIONS =================
 client.on("interactionCreate", async interaction => {
-    try {
 
-        // ================= SLASH COMMANDS =================
-        if (interaction.isChatInputCommand()) {
+    // ================= PANEL COMMAND =================
+    if (interaction.isChatInputCommand()) {
 
-            // PANEL
-            if (interaction.commandName === "panel") {
+        if (interaction.commandName === "panel") {
 
-                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-                    return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+                return interaction.reply({ content: "Admin only.", ephemeral: true });
 
-                const channel = interaction.options.getChannel("channel");
+            const channel = interaction.options.getChannel("channel");
+            const image = interaction.options.getString("image");
 
-                const embed = {
-                    title: "🎫 QPVA Support Center",
-                    description: "Select a department below.",
-                    color: 0x00ff00
-                };
+            const embed = {
+                title: "QPVA Support Centre!",
+                description:
+`Welcome to the Akasa Air Virtual Support Center! ✈️
+Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&1389824693388837035> is available to help you quickly and efficiently.
 
-                const row = new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId("ticket_category")
-                        .setPlaceholder("🎟 Select Category")
-                        .addOptions([
-                            { label: "General Support", value: "general", emoji: "🛠" },
-                            { label: "Recruitments", value: "recruit", emoji: "👨‍✈️" },
-                            { label: "PIREP Support", value: "pirep", emoji: "📄" },
-                            { label: "Executive Team Support", value: "exec", emoji: "👔" },
-                            { label: "Routes Support", value: "routes", emoji: "🗺️" }
-                        ])
-                );
+Please select a category below to get started, and we’ll connect you with the right support right away.
 
-                await channel.send({ embeds: [embed], components: [row] });
-                return interaction.reply({ content: "✅ Panel sent.", ephemeral: true });
-            }
+We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`,
+                color: 0x00bfff
+            };
 
-            // STATUS
-            if (interaction.commandName === "status") {
+            if (image) embed.image = { url: image };
 
-                if (interaction.user.id !== OWNER_ID)
-                    return interaction.reply({ content: "❌ Owner only.", ephemeral: true });
+            const row = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId("ticket_category")
+                    .setPlaceholder("🎟 Select Support Category")
+                    .addOptions([
+                        { label: "General Support", value: "general", emoji: "🛠" },
+                        { label: "Recruitments", value: "recruit", emoji: "👨‍✈️" },
+                        { label: "PIREP Support", value: "pirep", emoji: "📄" },
+                        { label: "Executive Team Support", value: "exec", emoji: "👔" },
+                        { label: "Routes Support", value: "routes", emoji: "🗺️" }
+                    ])
+            );
 
-                const type = interaction.options.getString("type");
-                const text = interaction.options.getString("text");
+            await channel.send({ embeds: [embed], components: [row] });
 
-                let activity = ActivityType.Playing;
-                if (type === "WATCHING") activity = ActivityType.Watching;
-                if (type === "LISTENING") activity = ActivityType.Listening;
-                if (type === "STREAMING") activity = ActivityType.Streaming;
+            return interaction.reply({ content: "✅ Support panel sent!", ephemeral: true });
+        }
+    }
 
-                client.user.setActivity(text, { type: activity });
+    // ================= CREATE TICKET =================
+    if (interaction.isStringSelectMenu()) {
 
-                return interaction.reply({ content: "✅ Status updated.", ephemeral: true });
-            }
+        if (interaction.customId === "ticket_category") {
 
-            // SAY
-            if (interaction.commandName === "say") {
+            const category = interaction.values[0];
 
-                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-                    return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
+            const existing = interaction.guild.channels.cache.find(c =>
+                c.topic === interaction.user.id
+            );
 
-                const channel = interaction.options.getChannel("channel");
-                const message = interaction.options.getString("message");
+            if (existing)
+                return interaction.reply({
+                    content: `❌ You already have a ticket: ${existing}`,
+                    ephemeral: true
+                });
 
-                await channel.send(message);
-                return interaction.reply({ content: "✅ Message sent.", ephemeral: true });
-            }
+            const roleMap = {
+                general: GENERAL_ROLE_ID,
+                recruit: RECRUIT_ROLE_ID,
+                pirep: PIREP_ROLE_ID,
+                exec: EXEC_ROLE_ID,
+                routes: ROUTES_ROLE_ID
+            };
+
+            const roleId = roleMap[category];
+
+            const channel = await interaction.guild.channels.create({
+                name: `ticket-${interaction.user.username}`,
+                type: ChannelType.GuildText,
+                parent: CATEGORY_ID,
+                topic: interaction.user.id,
+                permissionOverwrites: [
+                    {
+                        id: interaction.guild.roles.everyone.id,
+                        deny: [PermissionsBitField.Flags.ViewChannel]
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages
+                        ]
+                    },
+                    {
+                        id: roleId,
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages
+                        ]
+                    }
+                ]
+            });
+
+            const embed = {
+                title: "🎫 Ticket Created",
+                description: `Category: **${category.toUpperCase()}**`,
+                color: 0x00ff00,
+                fields: [
+                    { name: "Opened By", value: `<@${interaction.user.id}>`, inline: true },
+                    { name: "Claimed By", value: "Not claimed", inline: true }
+                ],
+                timestamp: new Date()
+            };
+
+            const buttons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`claim_${roleId}`)
+                    .setLabel("🙋 Claim")
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId("close_ticket")
+                    .setLabel("🔒 Close")
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId("delete_ticket")
+                    .setLabel("🗑 Delete")
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await channel.send({
+                content: `<@&${roleId}>`,
+                embeds: [embed],
+                components: [buttons]
+            });
+
+            return interaction.reply({
+                content: `✅ Ticket created: ${channel}`,
+                ephemeral: true
+            });
+        }
+    }
+
+    // ================= BUTTONS =================
+    if (interaction.isButton()) {
+
+        // CLAIM
+        if (interaction.customId.startsWith("claim_")) {
+
+            const roleId = interaction.customId.split("_")[1];
+
+            if (!interaction.member.roles.cache.has(roleId))
+                return interaction.reply({ content: "Not authorized.", ephemeral: true });
+
+            const embed = interaction.message.embeds[0].toJSON();
+            embed.fields[1].value = `<@${interaction.user.id}>`;
+
+            await interaction.message.edit({ embeds: [embed] });
+
+            return interaction.reply({ content: "✅ Ticket claimed!", ephemeral: true });
         }
 
-    } catch (error) {
-        console.error("Interaction Error:", error);
+        // CLOSE
+        if (interaction.customId === "close_ticket") {
+
+            await interaction.channel.permissionOverwrites.edit(
+                interaction.channel.topic,
+                { SendMessages: false }
+            );
+
+            return interaction.reply("🔒 Ticket closed.");
+        }
+
+        // DELETE
+        if (interaction.customId === "delete_ticket") {
+
+            await interaction.reply("🗑 Deleting ticket...");
+            setTimeout(() => interaction.channel.delete(), 2000);
+        }
     }
 });
 
