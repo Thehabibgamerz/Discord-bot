@@ -9,9 +9,10 @@ const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
 const OWNER_ID = process.env.OWNER_ID;
+const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID; // New for logs
 const PORT = process.env.PORT || 3000;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID) {
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OWNER_ID || !TICKET_LOG_CHANNEL_ID) {
     console.log("❌ Missing environment variables!");
     process.exit(1);
 }
@@ -19,7 +20,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !OW
 // --- CLIENT ---
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// --- EXPRESS (for Railway uptime) ---
+// --- EXPRESS (for uptime) ---
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
@@ -73,6 +74,7 @@ const commands = [
 // --- DATA STORAGE ---
 client.eventMessages = new Map();
 client.giveaways = new Map();
+client.ticketMessages = new Map();
 
 // --- CLIENT READY ---
 client.on("ready", () => {
@@ -81,7 +83,6 @@ client.on("ready", () => {
 
 // --- INTERACTION HANDLER ---
 client.on("interactionCreate", async interaction => {
-    // --- SLASH COMMANDS ---
     if (interaction.isChatInputCommand()) {
 
         // --- PANEL ---
@@ -89,15 +90,21 @@ client.on("interactionCreate", async interaction => {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
                 return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
-            const image = interaction.options.getString("image");
-            const createBtn = new ButtonBuilder().setCustomId("create_ticket").setLabel("🎟 Create Ticket").setStyle(ButtonStyle.Primary);
+            const panelEmbed = {
+                title: "QPVA Support Centre!",
+                description: `Welcome to the Akasa Air Virtual Support Center! ✈️
+Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&${SUPPORT_ROLE_ID}> is available to help you quickly and efficiently with a wide range of queries, including:
+
+Please select a category below to get started, and we’ll connect you with the right support right away.
+
+We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`,
+                color: 0x00FF00
+            };
+
+            const createBtn = new ButtonBuilder().setCustomId("create_ticket").setLabel("📩 Create a Ticket").setStyle(ButtonStyle.Primary);
             const row = new ActionRowBuilder().addComponents(createBtn);
 
-            return interaction.reply({
-                content: "🎟 Ticket Panel — click below to create a ticket.",
-                components: [row],
-                embeds: image ? [{ image: { url: image }, color: 0x00FF00 }] : undefined
-            });
+            return interaction.reply({ embeds: [panelEmbed], components: [row] });
         }
 
         // --- STATUS ---
@@ -188,30 +195,24 @@ client.on("interactionCreate", async interaction => {
                 ]
             };
 
-            const timestamp = Date.now();
+            const msg = await channel.send({ content: mention ? `<@&${mention}>` : null, embeds: [embed] });
             const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`giveaway_${timestamp}_join`).setLabel("✅ Join").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`giveaway_${timestamp}_leave`).setLabel("❌ Leave").setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId(`giveaway_${msg.id}_join`).setLabel("✅ Join").setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`giveaway_${msg.id}_leave`).setLabel("❌ Leave").setStyle(ButtonStyle.Danger)
             );
-
-            const content = mention ? `<@&${mention}>` : null;
-            const msg = await channel.send({ content, embeds: [embed], components: [buttons] });
-
+            await msg.edit({ components: [buttons] });
             client.giveaways.set(msg.id, { participants, prize, endsOn });
 
-            // Auto end
             const timeout = endDate.getTime() - Date.now();
             setTimeout(async () => {
                 const data = client.giveaways.get(msg.id);
                 if (!data) return;
-
                 const participantsArr = [...data.participants];
                 let winnerText = "No participants!";
                 if (participantsArr.length > 0) {
                     const winner = participantsArr[Math.floor(Math.random() * participantsArr.length)];
                     winnerText = `<@${winner}> won the prize! 🎉`;
                 }
-
                 const endEmbed = {
                     title: `${title} - Ended`,
                     description,
@@ -221,7 +222,6 @@ client.on("interactionCreate", async interaction => {
                         { name: "Winner", value: winnerText }
                     ]
                 };
-
                 await msg.edit({ embeds: [endEmbed], components: [] });
                 client.giveaways.delete(msg.id);
             }, timeout);
@@ -230,18 +230,92 @@ client.on("interactionCreate", async interaction => {
         }
     }
 
-    // --- BUTTONS ---
+    // --- BUTTON HANDLER ---
     if (interaction.isButton()) {
 
-        // --- TICKET BUTTONS ---
-        // create_ticket / claim_ticket / close_ticket / reopen_ticket
-        // (same as previous ticket system)
+        // --- TICKET CREATE ---
+        if (interaction.customId === "create_ticket") {
+            const threadName = `ticket-${interaction.user.username}`;
+            const thread = await interaction.channel.threads.create({
+                name: threadName,
+                type: ChannelType.PrivateThread,
+                autoArchiveDuration: 1440,
+                reason: `Ticket created by ${interaction.user.tag}`
+            });
+            await thread.members.add(interaction.user.id);
+            const staffRole = interaction.guild.roles.cache.get(SUPPORT_ROLE_ID);
+            if (staffRole) for (const [_, member] of staffRole.members) await thread.members.add(member.id);
+
+            const ticketEmbed = {
+                title: "🎫 Support Ticket",
+                description: "Thank you for contacting us. A support agent will be with you shortly.",
+                color: 0x00FF00,
+                fields: [
+                    { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },
+                    { name: "Claimed by", value: "None", inline: true }
+                ],
+                timestamp: new Date()
+            };
+
+            const buttons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`claim_ticket_${thread.id}`).setLabel("🛡 Claim Ticket").setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`close_ticket_${thread.id}`).setLabel("❌ Close Ticket").setStyle(ButtonStyle.Danger)
+            );
+
+            await thread.send({ content: `<@&${SUPPORT_ROLE_ID}>`, embeds: [ticketEmbed], components: [buttons] });
+
+            // Ticket log
+            const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+            if (logChannel) {
+                logChannel.send({ embeds: [{
+                    title: "🎫 Ticket Created",
+                    description: `Ticket **${thread.name}** has been created.`,
+                    color: 0x00FF00,
+                    fields: [
+                        { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },
+                        { name: "Thread", value: `${thread}`, inline: true },
+                        { name: "Staff Role", value: `<@&${SUPPORT_ROLE_ID}>`, inline: true }
+                    ],
+                    timestamp: new Date()
+                }]});
+            }
+
+            return interaction.reply({ content: `✅ Your ticket has been created: ${thread}`, ephemeral: true });
+        }
+
+        // --- TICKET CLAIM & CLOSE ---
+        const [action, type, ticketId] = interaction.customId.split("_"); // claim_ticket_<id>
+        const thread = interaction.channel;
+
+        if (["claim", "close"].includes(action)) {
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
+                return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
+
+            const message = (await thread.messages.fetch({ limit: 10 })).find(m => m.embeds.length && m.components.length);
+            if (!message) return interaction.reply({ content: "❌ Ticket embed not found.", ephemeral: true });
+            const embed = message.embeds[0].toJSON();
+            const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+
+            if (action === "claim") {
+                embed.fields[1].value = `<@${interaction.user.id}>`;
+                await message.edit({ embeds: [embed] });
+                if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${thread.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, fields: [{ name: "Thread", value: `${thread}` }], timestamp: new Date() }] });
+                return interaction.reply({ content: `✅ You claimed this ticket.`, ephemeral: true });
+            }
+
+            if (action === "close") {
+                const disabledButtons = message.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
+                await message.edit({ components: disabledButtons });
+                await thread.setArchived(true);
+                if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${thread.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, fields: [{ name: "Thread", value: `${thread}` }], timestamp: new Date() }] });
+                return interaction.reply({ content: `✅ Ticket closed and archived.`, ephemeral: true });
+            }
+        }
 
         // --- EVENT BUTTONS ---
         if (client.eventMessages.has(interaction.message.id)) {
             const data = client.eventMessages.get(interaction.message.id);
             const embed = interaction.message.embeds[0].toJSON();
-
             if (interaction.customId === "attending_event") {
                 data.notAttending.delete(interaction.user.id);
                 data.attendees.add(interaction.user.id);
@@ -249,10 +323,8 @@ client.on("interactionCreate", async interaction => {
                 data.attendees.delete(interaction.user.id);
                 data.notAttending.add(interaction.user.id);
             }
-
             embed.fields[1].value = data.attendees.size > 0 ? [...data.attendees].map(id => `<@${id}>`).join("\n") : "None";
             embed.fields[2].value = data.notAttending.size > 0 ? [...data.notAttending].map(id => `<@${id}>`).join("\n") : "None";
-
             return interaction.update({ embeds: [embed] });
         }
 
@@ -260,16 +332,13 @@ client.on("interactionCreate", async interaction => {
         if (interaction.customId.startsWith("giveaway_")) {
             const parts = interaction.customId.split("_");
             const msgId = parts[1];
-            const action = parts[2]; // join / leave
+            const action = parts[2];
             const data = client.giveaways.get(msgId);
             if (!data) return interaction.reply({ content: "❌ Giveaway not found.", ephemeral: true });
-
             if (action === "join") data.participants.add(interaction.user.id);
             else if (action === "leave") data.participants.delete(interaction.user.id);
-
             const embed = interaction.message.embeds[0].toJSON();
             embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";
-
             return interaction.update({ embeds: [embed] });
         }
     }
