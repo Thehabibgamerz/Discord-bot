@@ -22,7 +22,7 @@ const CATEGORY_ID = process.env.CATEGORY_ID;
 
 // Role IDs
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
-const RECRUIT_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
 
