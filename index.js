@@ -2,7 +2,7 @@
 const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, ActivityType, PermissionsBitField } = require("discord.js");
 const express = require("express");
 
-// --- ENV VARIABLES ---
+// ---------------------- ENV VARIABLES ----------------------
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
@@ -18,7 +18,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TI
     process.exit(1);
 }
 
-// --- CLIENT (safe intents only) ---
+// ---------------------- CLIENT ----------------------
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -27,19 +27,19 @@ const client = new Client({
     ]
 });
 
-// --- EXPRESS (uptime) ---
+// ---------------------- EXPRESS UPTIME ----------------------
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
 
-// --- SLASH COMMANDS ---
+// ---------------------- SLASH COMMANDS ----------------------
 const commands = [
     new SlashCommandBuilder()
         .setName("panel")
         .setDescription("Send the ticket panel")
         .addChannelOption(opt => opt.setName("channel").setDescription("Where to send the panel").setRequired(true))
         .addStringOption(opt => opt.setName("image").setDescription("Optional panel image URL")),
-
+    
     new SlashCommandBuilder()
         .setName("status")
         .setDescription("Change bot status (owner only)")
@@ -60,32 +60,33 @@ const commands = [
         .addStringOption(opt => opt.setName("prize").setDescription("Prize").setRequired(true))
         .addChannelOption(opt => opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))
         .addStringOption(opt => opt.setName("ends_on").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))
-        .addStringOption(opt => opt.setName("image").setDescription("Optional giveaway image URL"))
+        .addStringOption(opt => opt.setName("image").setDescription("Optional image URL"))
         .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'"))
 ].map(cmd => cmd.toJSON());
 
-// --- REGISTER COMMANDS ---
+// ---------------------- REGISTER COMMANDS ----------------------
 (async () => {
     const rest = new REST({ version: "10" }).setToken(TOKEN);
     try {
         console.log("🛠 Registering slash commands...");
         const data = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-        console.log(`✅ Registered ${data.length} commands:`, data.map(c => c.name).join(", "));
+        console.log(`✅ Registered ${data.length} commands: ${data.map(c => c.name).join(", ")}`);
     } catch (error) {
         console.error("❌ Failed to register commands:", error);
     }
 })();
 
-// --- DATA STORAGE ---
+// ---------------------- DATA STORAGE ----------------------
 client.giveaways = new Map();
 
-// --- CLIENT READY ---
-client.on("ready", () => console.log(`🤖 Logged in as ${client.user.tag}`));
+// ---------------------- READY ----------------------
+client.once("ready", () => console.log(`🤖 Logged in as ${client.user.tag}`));
 
-// --- INTERACTION HANDLER ---
+// ---------------------- INTERACTION HANDLER ----------------------
 client.on("interactionCreate", async interaction => {
+    // --- SLASH COMMANDS ---
     if (interaction.isChatInputCommand()) {
-        // --- PANEL ---
+        // ----------------- PANEL -----------------
         if (interaction.commandName === "panel") {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
                 return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
@@ -112,7 +113,7 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ Panel sent in ${targetChannel}`, ephemeral: true });
         }
 
-        // --- STATUS ---
+        // ----------------- STATUS -----------------
         if (interaction.commandName === "status") {
             if (interaction.user.id !== OWNER_ID)
                 return interaction.reply({ content: "❌ Only bot owner can use this.", ephemeral: true });
@@ -128,7 +129,7 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
         }
 
-        // --- GIVEAWAY ---
+        // ----------------- GIVEAWAY -----------------
         if (interaction.commandName === "giveaway") {
             const title = interaction.options.getString("title");
             const description = interaction.options.getString("description");
@@ -189,11 +190,11 @@ Please select a category below to get started.`,
         }
     }
 
-    // --- BUTTON INTERACTIONS ---
+    // ---------------------- BUTTON INTERACTIONS ----------------------
     if (interaction.isButton()) {
         const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
 
-        // Handle tickets
+        // ----------------- TICKET PANEL -----------------
         if (interaction.customId === "create_general" || interaction.customId === "create_recruit") {
             const category = interaction.guild.channels.cache.get(CATEGORY_ID);
             const isRecruit = interaction.customId === "create_recruit";
@@ -237,53 +238,95 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ ${isRecruit ? "Recruitment" : "Support"} ticket created: ${channel}`, ephemeral: true });
         }
 
-        // TODO: claim, close, reopen buttons (similar to previous working version)
-    }
+        // ----------------- CLAIM / CLOSE / REOPEN -----------------
+        const [action, , channelId] = interaction.customId.split("_");
+        if (!channelId) return;
 
-    // --- GIVEAWAY BUTTONS ---
-    if (interaction.isButton() && interaction.customId.startsWith("giveaway_")) {
-        const parts = interaction.customId.split("_");
-        const msgId = parts[1];
-        const action = parts[2];
-        const data = client.giveaways.get(msgId);
-        if (!data) return interaction.reply({ content: "❌ Giveaway not found.", ephemeral: true });
+        const ticketChannel = interaction.guild.channels.cache.get(channelId);
+        if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
 
-        if (action === "join") data.participants.add(interaction.user.id);
-        else if (action === "leave") data.participants.delete(interaction.user.id);
+        const ticketMessage = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+        if (!ticketMessage) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
 
-        const embed = interaction.message.embeds[0].toJSON();
-        embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";
-        await interaction.update({ embeds: [embed] });
-    }
-});
+        // CLAIM
+        if (action === "claim") {
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can claim tickets.", ephemeral: true });
+            const embed = ticketMessage.embeds[0].toJSON();
+            embed.fields[1].value = `<@${interaction.user.id}>`; // Claimed by
+            await ticketMessage.edit({ embeds: [embed] });
+            return interaction.reply({ content: `✅ You claimed this ticket.`, ephemeral: true });
+        }
 
-// --- MESSAGE BASED CLOSE COMMAND ---
-client.on("messageCreate", async message => {
-    if (message.author.bot) return;
-    
-    if (message.content.toLowerCase() === "!closeticket") {
-        const logChannel = message.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
-
-        if (!message.member.roles.cache.has(SUPPORT_ROLE_ID)) return message.reply("❌ Only staff can close tickets.");
-        if (!message.channel.name.startsWith("ticket-") && !message.channel.name.startsWith("recruitment-")) return message.reply("❌ This is not a ticket channel.");
-
-        const ticketMessage = (await message.channel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-        if (ticketMessage) {
+        // CLOSE
+        if (action === "close") {
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can close tickets.", ephemeral: true });
             const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
             await ticketMessage.edit({ components: disabled });
+
+            await ticketChannel.permissionOverwrites.edit(ticketChannel.guild.roles.everyone, { ViewChannel: false });
+            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+            if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+            return interaction.reply({ content: "✅ Ticket closed successfully.", ephemeral: true });
         }
 
-        const embed = ticketMessage?.embeds[0];
-        if (embed) {
-            const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
-            await message.channel.permissionOverwrites.edit(ticketUserId, { SendMessages: false });
-            await message.channel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+        // REOPEN
+        if (action === "reopen") {
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can reopen tickets.", ephemeral: true });
+            const enabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(false)); return row; });
+            await ticketMessage.edit({ components: enabled });
+
+            const embed = ticketMessage.embeds[0].toJSON();
+            const openerId = embed.fields[0].value.replace(/[<@!>]/g, "");
+            await ticketChannel.permissionOverwrites.edit(openerId, { SendMessages: true, ViewChannel: true });
+            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: true, ViewChannel: true });
+
+            if (logChannel) logChannel.send({ embeds: [{ title: "♻ Ticket Reopened", description: `Ticket **${ticketChannel.name}** reopened by <@${interaction.user.id}>`, color: 0x00FF00, timestamp: new Date() }] });
+            return interaction.reply({ content: "✅ Ticket reopened successfully.", ephemeral: true });
         }
 
-        if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${message.channel.name}** closed by <@${message.author.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+        // ----------------- GIVEAWAY BUTTONS -----------------
+        if (interaction.customId.startsWith("giveaway_")) {
+            const parts = interaction.customId.split("_");
+            const msgId = parts[1];
+            const act = parts[2];
+            const data = client.giveaways.get(msgId);
+            if (!data) return interaction.reply({ content: "❌ Giveaway not found.", ephemeral: true });
 
-        return message.reply("✅ Ticket closed successfully.");
+            if (act === "join") data.participants.add(interaction.user.id);
+            else if (act === "leave") data.participants.delete(interaction.user.id);
+
+            const embed = interaction.message.embeds[0].toJSON();
+            embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";
+            await interaction.update({ embeds: [embed] });
+        }
     }
 });
 
+// ---------------------- MESSAGE COMMAND !closeticket ----------------------
+client.on("messageCreate", async message => {
+    if (message.author.bot) return;
+    if (message.content.toLowerCase() !== "!closeticket") return;
+
+    const logChannel = message.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+    if (!message.member.roles.cache.has(SUPPORT_ROLE_ID)) return message.reply("❌ Only staff can close tickets.");
+    if (!message.channel.name.startsWith("ticket-") && !message.channel.name.startsWith("recruitment-")) return message.reply("❌ This is not a ticket channel.");
+
+    const ticketMessage = (await message.channel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+    if (ticketMessage) {
+        const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
+        await ticketMessage.edit({ components: disabled });
+    }
+
+    const embed = ticketMessage?.embeds[0];
+    if (embed) {
+        const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
+        await message.channel.permissionOverwrites.edit(ticketUserId, { SendMessages: false });
+        await message.channel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+    }
+
+    if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${message.channel.name}** closed by <@${message.author.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+    return message.reply("✅ Ticket closed successfully.");
+});
+
+// ---------------------- LOGIN ----------------------
 client.login(TOKEN);
