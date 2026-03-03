@@ -97,7 +97,10 @@ client.on("interactionCreate", async interaction => {
                 description: `Welcome to the Akasa Air Virtual Support Center! ✈️
 Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&${SUPPORT_ROLE_ID}> is available to help you quickly and efficiently.
 
-Please select a category below to get started, and we’ll connect you with the right support right away.
+How to Get Help:
+1. Click the 📩 Create a Ticket button below.
+2. Describe your issue or request in detail.
+3. Our support staff will respond as soon as possible.
 
 We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`,
                 color: 0x00FF00,
@@ -234,46 +237,45 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
         }
 
         // --- TICKET CLAIM/CLOSE BUTTON HANDLER ---
-if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
-    const [action, , ticketId] = interaction.customId.split("_");
+if (interaction.customId.startsWith("close_ticket_")) {
+    const ticketId = interaction.customId.split("_")[2];
     const ticketChannel = interaction.guild.channels.cache.get(ticketId);
     if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
 
     if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
         return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
 
-    const message = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-    if (!message) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
+    // ✅ Immediately acknowledge to prevent interaction failed
+    await interaction.deferUpdate();
 
-    const embed = message.embeds[0].toJSON();
-
-    if (action === "claim") {
-        embed.fields[1].value = `<@${interaction.user.id}>`;
-        await message.edit({ embeds: [embed] });
-        if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
-        return interaction.reply({ content: "✅ You claimed this ticket.", ephemeral: true });
-    }
-
-    if (action === "close") {
-        // Disable buttons on ticket
-        const disabledButtons = message.components.map(row => {
+    // Disable all buttons
+    const ticketMessage = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+    if (ticketMessage) {
+        const disabled = ticketMessage.components.map(row => {
             row.components.forEach(c => c.setDisabled(true));
             return row;
         });
-        await message.edit({ components: disabledButtons });
+        await ticketMessage.edit({ components: disabled });
+    }
 
-        // Remove ticket permissions
-        await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
-        await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+    // Remove SendMessages for user and staff
+    await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
+    await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
 
-        // Send log
-        if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-
-        // ✅ **ACKNOWLEDGE interaction properly**
-        return interaction.reply({ content: "✅ Ticket closed successfully.", ephemeral: true });
+    // Log channel
+    const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+    if (logChannel) {
+        logChannel.send({
+            embeds: [{
+                title: "❌ Ticket Closed",
+                description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`,
+                color: 0xFF0000,
+                timestamp: new Date()
+            }]
+        });
     }
 }
-
+        
         // --- GIVEAWAY BUTTONS ---
         if (interaction.customId.startsWith("giveaway_")) {
             const parts = interaction.customId.split("_");
