@@ -46,17 +46,6 @@ const commands = [
         .addStringOption(opt => opt.setName("text").setDescription("Status text").setRequired(true)),
 
     new SlashCommandBuilder()
-        .setName("createevent")
-        .setDescription("Create a new event")
-        .addStringOption(opt => opt.setName("title").setDescription("Event title").setRequired(true))
-        .addStringOption(opt => opt.setName("description").setDescription("Event description").setRequired(true))
-        .addChannelOption(opt => opt.setName("channel").setDescription("Channel to post event").setRequired(true))
-        .addStringOption(opt => opt.setName("start").setDescription("Start time YYYY-MM-DD HH:mm").setRequired(true))
-        .addStringOption(opt => opt.setName("end").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))
-        .addStringOption(opt => opt.setName("image").setDescription("Optional event image URL"))
-        .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'")),
-
-    new SlashCommandBuilder()
         .setName("giveaway")
         .setDescription("Create a giveaway")
         .addStringOption(opt => opt.setName("title").setDescription("Giveaway title").setRequired(true))
@@ -64,7 +53,7 @@ const commands = [
         .addStringOption(opt => opt.setName("prize").setDescription("Prize").setRequired(true))
         .addChannelOption(opt => opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))
         .addStringOption(opt => opt.setName("ends_on").setDescription("End time YYYY-MM-DD HH:mm").setRequired(true))
-        .addStringOption(opt => opt.setName("image").setDescription("Optional giveaway image"))
+        .addStringOption(opt => opt.setName("image").setDescription("Optional giveaway image URL"))
         .addStringOption(opt => opt.setName("mention").setDescription("Role ID to mention or 'everyone'"))
 ].map(cmd => cmd.toJSON());
 
@@ -81,7 +70,6 @@ const commands = [
 })();
 
 // --- DATA STORAGE ---
-client.eventMessages = new Map();
 client.giveaways = new Map();
 
 // --- CLIENT READY ---
@@ -99,6 +87,8 @@ client.on("interactionCreate", async interaction => {
                 return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
 
             const targetChannel = interaction.options.getChannel("channel");
+            const image = interaction.options.getString("image") || null;
+
             if (!targetChannel || targetChannel.type !== ChannelType.GuildText)
                 return interaction.reply({ content: "❌ Invalid channel.", ephemeral: true });
 
@@ -110,7 +100,8 @@ Need assistance with Akasa Air services? You’re in the right place! Our dedica
 Please select a category below to get started, and we’ll connect you with the right support right away.
 
 We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`,
-                color: 0x00FF00
+                color: 0x00FF00,
+                image: image ? { url: image } : undefined
             };
 
             const createBtn = new ButtonBuilder().setCustomId("create_ticket").setLabel("📩 Create a Ticket").setStyle(ButtonStyle.Primary);
@@ -136,64 +127,18 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
         }
 
-        // --- CREATE EVENT ---
-        if (interaction.commandName === "createevent") {
-            const title = interaction.options.getString("title");
-            const description = interaction.options.getString("description");
-            const channel = interaction.options.getChannel("channel");
-            const image = interaction.options.getString("image");
-            const mention = interaction.options.getString("mention") || null;
-            const start = interaction.options.getString("start");
-            const end = interaction.options.getString("end");
-
-            const startDate = new Date(start);
-            const endDate = new Date(end);
-            if (isNaN(startDate) || isNaN(endDate))
-                return interaction.reply({ content: "❌ Invalid date format. Use YYYY-MM-DD HH:mm", ephemeral: true });
-
-            const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            const startStr = `${startDate.toLocaleDateString('en-US', opts)} at ${startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-            const endStr = `${endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-            const timeFormatted = `${startStr} - ${endStr}`;
-
-            const attendees = new Set();
-            const notAttending = new Set();
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("attending_event").setLabel("✅ I'm Attending").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId("cant_attend_event").setLabel("❌ Can't Attend").setStyle(ButtonStyle.Danger)
-            );
-
-            const embed = {
-                title,
-                description,
-                color: 0x00FF00,
-                image: image ? { url: image } : undefined,
-                fields: [
-                    { name: "Time", value: timeFormatted, inline: true },
-                    { name: "Attending", value: "None", inline: true },
-                    { name: "Can't Attend", value: "None", inline: true }
-                ]
-            };
-
-            const content = mention ? `<@&${mention}>` : null;
-            const msg = await channel.send({ content, embeds: [embed], components: [row] });
-            client.eventMessages.set(msg.id, { attendees, notAttending });
-
-            return interaction.reply({ content: "✅ Event created!", ephemeral: true });
-        }
-
         // --- GIVEAWAY ---
         if (interaction.commandName === "giveaway") {
             const title = interaction.options.getString("title");
             const description = interaction.options.getString("description");
             const prize = interaction.options.getString("prize");
             const channel = interaction.options.getChannel("channel");
-            const image = interaction.options.getString("image");
+            const image = interaction.options.getString("image") || null;
             const mention = interaction.options.getString("mention") || null;
             const endsOn = interaction.options.getString("ends_on");
 
             const endDate = new Date(endsOn);
-            if (isNaN(endDate)) return interaction.reply({ content: "❌ Invalid date format", ephemeral: true });
+            if (isNaN(endDate)) return interaction.reply({ content: "❌ Invalid date format. Use YYYY-MM-DD HH:mm", ephemeral: true });
 
             const participants = new Set();
             const embed = {
@@ -216,7 +161,7 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             await msg.edit({ components: [buttons] });
             client.giveaways.set(msg.id, { participants, prize, endsOn });
 
-            const timeout = endDate.getTime() - Date.now();
+            // End giveaway after timeout
             setTimeout(async () => {
                 const data = client.giveaways.get(msg.id);
                 if (!data) return;
@@ -230,6 +175,7 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
                     title: `${title} - Ended`,
                     description,
                     color: 0x00FF00,
+                    image: image ? { url: image } : undefined,
                     fields: [
                         { name: "Prize", value: prize, inline: true },
                         { name: "Winner", value: winnerText }
@@ -237,7 +183,7 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
                 };
                 await msg.edit({ embeds: [endEmbed], components: [] });
                 client.giveaways.delete(msg.id);
-            }, timeout);
+            }, endDate.getTime() - Date.now());
 
             return interaction.reply({ content: `✅ Giveaway started in ${channel}!`, ephemeral: true });
         }
@@ -288,51 +234,36 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
         }
 
         // --- TICKET CLAIM/CLOSE ---
-        const [action, type, ticketId] = interaction.customId.split("_");
-        const ticketChannel = interaction.guild.channels.cache.get(ticketId);
-        if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
+        if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
+            const [action, , ticketId] = interaction.customId.split("_");
+            const ticketChannel = interaction.guild.channels.cache.get(ticketId);
+            if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
 
-        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
-            return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
+                return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
 
-        const message = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-        if (!message) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
-        const embed = message.embeds[0].toJSON();
+            const message = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+            if (!message) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
 
-        if (action === "claim") {
-            embed.fields[1].value = `<@${interaction.user.id}>`;
-            await message.edit({ embeds: [embed] });
-            if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
-            return interaction.reply({ content: "✅ You claimed this ticket.", ephemeral: true });
-        }
+            const embed = message.embeds[0].toJSON();
 
-        if (action === "close") {
-            // Disable buttons
-            const disabledButtons = message.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
-            await message.edit({ components: disabledButtons });
-
-            // Remove user's send permissions
-            await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
-            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
-
-            if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-            return interaction.reply({ content: "✅ Ticket closed.", ephemeral: true });
-        }
-
-        // --- EVENT BUTTONS ---
-        if (client.eventMessages.has(interaction.message.id)) {
-            const data = client.eventMessages.get(interaction.message.id);
-            const embed = interaction.message.embeds[0].toJSON();
-            if (interaction.customId === "attending_event") {
-                data.notAttending.delete(interaction.user.id);
-                data.attendees.add(interaction.user.id);
-            } else if (interaction.customId === "cant_attend_event") {
-                data.attendees.delete(interaction.user.id);
-                data.notAttending.add(interaction.user.id);
+            if (action === "claim") {
+                embed.fields[1].value = `<@${interaction.user.id}>`;
+                await message.edit({ embeds: [embed] });
+                if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
+                return interaction.reply({ content: "✅ You claimed this ticket.", ephemeral: true });
             }
-            embed.fields[1].value = data.attendees.size > 0 ? [...data.attendees].map(id => `<@${id}>`).join("\n") : "None";
-            embed.fields[2].value = data.notAttending.size > 0 ? [...data.notAttending].map(id => `<@${id}>`).join("\n") : "None";
-            return interaction.update({ embeds: [embed] });
+
+            if (action === "close") {
+                const disabledButtons = message.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
+                await message.edit({ components: disabledButtons });
+
+                await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
+                await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+
+                if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+                return interaction.reply({ content: "✅ Ticket closed.", ephemeral: true });
+            }
         }
 
         // --- GIVEAWAY BUTTONS ---
@@ -342,7 +273,15 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             const action = parts[2];
             const data = client.giveaways.get(msgId);
             if (!data) return interaction.reply({ content: "❌ Giveaway not found.", ephemeral: true });
+
             if (action === "join") data.participants.add(interaction.user.id);
             else if (action === "leave") data.participants.delete(interaction.user.id);
+
             const embed = interaction.message.embeds[0].toJSON();
-            embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id
+            embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";
+            await interaction.update({ embeds: [embed] });
+        }
+    }
+});
+
+client.login(TOKEN);
