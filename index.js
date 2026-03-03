@@ -1,6 +1,7 @@
 // ===========================================
-// QPVA FINAL ADVANCED SUPPORT SYSTEM
+// QPVA PROFESSIONAL SUPPORT BOT (RAILWAY SAFE)
 // Commands: /panel /say /atis
+// No external transcript package required
 // ===========================================
 
 const {
@@ -20,7 +21,6 @@ const {
 } = require("discord.js");
 
 const express = require("express");
-const transcripts = require("discord-html-transcripts");
 
 // ================= ENV =================
 const {
@@ -50,12 +50,12 @@ const client = new Client({
 client.ticketCounter = 0;
 client.ticketData = new Map();
 
-// ================= EXPRESS =================
+// ================= KEEP ALIVE =================
 const app = express();
-app.get("/", (req, res) => res.send("Bot Online"));
+app.get("/", (req, res) => res.send("Bot is running"));
 app.listen(PORT || 3000);
 
-// ================= COMMANDS =================
+// ================= SLASH COMMANDS =================
 const commands = [
 
   new SlashCommandBuilder()
@@ -91,7 +91,7 @@ const commands = [
         .setDescription("Airport ICAO")
         .setRequired(true))
 
-].map(cmd => cmd.toJSON());
+].map(c => c.toJSON());
 
 // ================= REGISTER =================
 (async () => {
@@ -124,9 +124,7 @@ if (interaction.isChatInputCommand() && interaction.commandName === "panel") {
   const embed = new EmbedBuilder()
     .setTitle("QPVA Support Centre!")
     .setDescription(`Welcome to the Akasa Air Virtual Support Center! ✈️
-Need assistance? Select a category below.
-
-We’re here to make your journey smooth and stress-free! 🌍`)
+Please select a category below to get started.`)
     .setColor(0x00bfff);
 
   if (image) embed.setImage(image);
@@ -161,7 +159,7 @@ if (interaction.isChatInputCommand() && interaction.commandName === "say") {
   return interaction.reply({ content: "Sent.", ephemeral: true });
 }
 
-// ================= ATIS FIXED =================
+// ================= ATIS =================
 if (interaction.isChatInputCommand() && interaction.commandName === "atis") {
 
   await interaction.deferReply();
@@ -170,12 +168,10 @@ if (interaction.isChatInputCommand() && interaction.commandName === "atis") {
   const icao = interaction.options.getString("icao").toUpperCase();
 
   try {
-
     const serversRes = await fetch(`https://api.infiniteflight.com/public/v2/servers?apikey=${INFINITE_API_KEY}`);
     const servers = await serversRes.json();
 
     const server = servers.result.find(s => s.name === serverName);
-
     if (!server)
       return interaction.editReply("❌ Server not found.");
 
@@ -184,15 +180,12 @@ if (interaction.isChatInputCommand() && interaction.commandName === "atis") {
     );
 
     const atis = await atisRes.json();
-
     if (!atis.result || atis.result.length === 0)
       return interaction.editReply("❌ No ATIS available.");
 
     const embed = new EmbedBuilder()
       .setTitle(`ATIS - ${icao}`)
-      .addFields(
-        { name: "Server", value: server.name, inline: true }
-      )
+      .addFields({ name: "Server", value: server.name })
       .setDescription(atis.result[0].text)
       .setColor(0x00ffcc)
       .setTimestamp();
@@ -235,17 +228,13 @@ if (interaction.isStringSelectMenu()) {
   client.ticketData.set(channel.id, {
     number: ticketNumber,
     category: selected.name,
-    openedBy: interaction.user.id,
-    claimedBy: null
+    openedBy: interaction.user.id
   });
 
   const embed = new EmbedBuilder()
     .setTitle(selected.name)
     .setDescription("Our staff team will contact you shortly!")
-    .addFields(
-      { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },
-      { name: "Claimed by", value: "Not claimed", inline: true }
-    )
+    .addFields({ name: "Opened by", value: `<@${interaction.user.id}>` })
     .setColor(0x2ecc71);
 
   const buttons = new ActionRowBuilder().addComponents(
@@ -262,44 +251,35 @@ if (interaction.isStringSelectMenu()) {
   return interaction.reply({ content: `Ticket created: ${channel}`, ephemeral: true });
 }
 
-// ================= BUTTON SYSTEM =================
+// ================= BUTTONS =================
 if (interaction.isButton()) {
 
   const data = client.ticketData.get(interaction.channel.id);
   if (!data) return;
 
   const memberRoles = interaction.member.roles.cache;
+  const staffRoles = [GENERAL_ROLE_ID, RECRUIT_ROLE_ID, PIREP_ROLE_ID, EXEC_ROLE_ID, ROUTES_ROLE_ID];
+  const isStaff = staffRoles.some(r => memberRoles.has(r));
 
-  // STAFF CHECK
-  const isStaff = [
-    GENERAL_ROLE_ID,
-    RECRUIT_ROLE_ID,
-    PIREP_ROLE_ID,
-    EXEC_ROLE_ID,
-    ROUTES_ROLE_ID
-  ].some(role => memberRoles.has(role));
+  if (!isStaff)
+    return interaction.reply({ content: "Staff only.", ephemeral: true });
 
   // CLAIM
   if (interaction.customId === "claim") {
 
-    if (!isStaff)
-      return interaction.reply({ content: "Staff only.", ephemeral: true });
-
-    data.claimedBy = interaction.user.id;
-
     await interaction.channel.setName(`claimed-${data.number}`);
 
-    const embed = new EmbedBuilder()
-      .setTitle(data.category)
-      .setDescription("Our staff team will contact you shortly!")
-      .addFields(
-        { name: "Opened by", value: `<@${data.openedBy}>`, inline: true },
-        { name: "Claimed by", value: `<@${interaction.user.id}>`, inline: true }
-      )
-      .setColor(0x3498db);
-
     return interaction.update({
-      embeds: [embed],
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(data.category)
+          .setDescription("Ticket claimed by staff.")
+          .addFields(
+            { name: "Opened by", value: `<@${data.openedBy}>` },
+            { name: "Claimed by", value: `<@${interaction.user.id}>` }
+          )
+          .setColor(0x3498db)
+      ],
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId("close").setLabel("Close").setStyle(ButtonStyle.Danger)
@@ -308,29 +288,41 @@ if (interaction.isButton()) {
     });
   }
 
-  // CLOSE + TRANSCRIPT
+  // CLOSE + SIMPLE TRANSCRIPT
   if (interaction.customId === "close") {
 
-    if (!isStaff)
-      return interaction.reply({ content: "Staff only.", ephemeral: true });
+    const messages = await interaction.channel.messages.fetch({ limit: 100 });
+    const sorted = Array.from(messages.values()).reverse();
 
-    const transcript = await transcripts.createTranscript(interaction.channel);
+    let transcriptText = `Ticket ${data.number}\n\n`;
+
+    for (const msg of sorted) {
+      transcriptText += `[${msg.author.tag}] ${msg.content}\n`;
+    }
+
+    const file = new AttachmentBuilder(
+      Buffer.from(transcriptText, "utf-8"),
+      { name: `ticket-${data.number}.txt` }
+    );
+
     const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
-    const logEmbed = new EmbedBuilder()
-      .setTitle("Ticket Closed")
-      .addFields(
-        { name: "Ticket", value: `ticket-${data.number}` },
-        { name: "Opened By", value: `<@${data.openedBy}>` },
-        { name: "Closed By", value: `<@${interaction.user.id}>` }
-      )
-      .setColor(0xff0000)
-      .setTimestamp();
-
-    await logChannel.send({
-      embeds: [logEmbed],
-      files: [transcript]
-    });
+    if (logChannel) {
+      await logChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("Ticket Closed")
+            .addFields(
+              { name: "Ticket", value: `ticket-${data.number}` },
+              { name: "Opened By", value: `<@${data.openedBy}>` },
+              { name: "Closed By", value: `<@${interaction.user.id}>` }
+            )
+            .setColor(0xff0000)
+            .setTimestamp()
+        ],
+        files: [file]
+      });
+    }
 
     return interaction.channel.delete();
   }
