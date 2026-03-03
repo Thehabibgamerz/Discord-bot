@@ -1,5 +1,6 @@
 // ===============================================
-// QPVA COMPLETE PROFESSIONAL BOT
+// QPVA COMPLETE PROFESSIONAL BOT (STABLE)
+// Node 18+ / 20+ / 22+ Compatible
 // ===============================================
 
 const {
@@ -19,7 +20,6 @@ const {
 } = require("discord.js");
 
 const express = require("express");
-const fetch = require("node-fetch");
 const fs = require("fs");
 
 // ================= ENV =================
@@ -64,21 +64,15 @@ const commands = [
         .setName("panel")
         .setDescription("Send support ticket panel")
         .addChannelOption(o =>
-            o.setName("channel")
-             .setDescription("Channel to send panel")
-             .setRequired(true))
+            o.setName("channel").setDescription("Channel").setRequired(true))
         .addStringOption(o =>
-            o.setName("image")
-             .setDescription("Optional image URL")
-             .setRequired(false)),
+            o.setName("image").setDescription("Optional image URL").setRequired(false)),
 
     new SlashCommandBuilder()
         .setName("status")
         .setDescription("Change bot status (Owner only)")
         .addStringOption(o =>
-            o.setName("type")
-             .setDescription("Activity type")
-             .setRequired(true)
+            o.setName("type").setDescription("Type").setRequired(true)
              .addChoices(
                 { name: "Playing", value: "PLAYING" },
                 { name: "Watching", value: "WATCHING" },
@@ -86,25 +80,19 @@ const commands = [
                 { name: "Streaming", value: "STREAMING" }
              ))
         .addStringOption(o =>
-            o.setName("text")
-             .setDescription("Status text")
-             .setRequired(true)),
+            o.setName("text").setDescription("Text").setRequired(true)),
 
     new SlashCommandBuilder()
         .setName("say")
         .setDescription("Make bot say something")
         .addChannelOption(o =>
-            o.setName("channel")
-             .setDescription("Channel to send message")
-             .setRequired(true))
+            o.setName("channel").setDescription("Channel").setRequired(true))
         .addStringOption(o =>
-            o.setName("message")
-             .setDescription("Message content")
-             .setRequired(true)),
+            o.setName("message").setDescription("Message").setRequired(true)),
 
     new SlashCommandBuilder()
         .setName("giveaway")
-        .setDescription("Create a giveaway")
+        .setDescription("Create giveaway")
         .addStringOption(o => o.setName("title").setDescription("Title").setRequired(true))
         .addStringOption(o => o.setName("description").setDescription("Description").setRequired(true))
         .addStringOption(o => o.setName("prize").setDescription("Prize").setRequired(true))
@@ -115,21 +103,15 @@ const commands = [
         .setName("reroll")
         .setDescription("Reroll giveaway")
         .addStringOption(o =>
-            o.setName("message_id")
-             .setDescription("Message ID")
-             .setRequired(true)),
+            o.setName("message_id").setDescription("Message ID").setRequired(true)),
 
     new SlashCommandBuilder()
         .setName("atis")
-        .setDescription("Get live ATIS from Infinite Flight")
+        .setDescription("Get live ATIS")
         .addStringOption(o =>
-            o.setName("server")
-             .setDescription("Server (Expert, Training, Casual)")
-             .setRequired(true))
+            o.setName("server").setDescription("Server").setRequired(true))
         .addStringOption(o =>
-            o.setName("icao")
-             .setDescription("Airport ICAO (e.g., VABB)")
-             .setRequired(true))
+            o.setName("icao").setDescription("Airport ICAO").setRequired(true))
 
 ].map(cmd => cmd.toJSON());
 
@@ -156,7 +138,7 @@ function resetInactivity(channel) {
     const timer = setTimeout(() => {
         channel.send("⏱ Ticket closed due to inactivity.");
         closeTicket(channel);
-    }, 30 * 60 * 1000); // 30 mins
+    }, 30 * 60 * 1000);
 
     client.ticketTimers.set(channel.id, timer);
 }
@@ -237,9 +219,9 @@ if (interaction.commandName === "atis") {
 
 await interaction.deferReply();
 
-const server = interaction.options.getString("server");
 const icao = interaction.options.getString("icao").toUpperCase();
 
+try {
 const response = await fetch(
 `https://api.infiniteflight.com/public/v2/atis/${icao}?apikey=${INFINITE_API_KEY}`
 );
@@ -249,18 +231,23 @@ const data = await response.json();
 if (!data.result)
 return interaction.editReply("ATIS not found.");
 
-const embed = {
+return interaction.editReply({
+embeds: [{
 title: `ATIS - ${icao}`,
 description: data.result,
 color: 0x00ffcc
-};
+}]
+});
 
-return interaction.editReply({ embeds: [embed] });
+} catch {
+return interaction.editReply("Failed to fetch ATIS.");
 }
 
 }
 
-// ================= SELECT MENU =================
+}
+
+// ================= TICKET CREATE =================
 if (interaction.isStringSelectMenu()) {
 
 await interaction.deferReply({ ephemeral: true });
@@ -308,20 +295,18 @@ return interaction.editReply(`Ticket created: ${channel}`);
 // ================= BUTTONS =================
 if (interaction.isButton()) {
 
-const channel = interaction.channel;
-
 if (interaction.customId === "claim") {
-await interaction.reply(`🙋 Claimed by <@${interaction.user.id}>`);
+return interaction.reply(`🙋 Claimed by <@${interaction.user.id}>`);
 }
 
 if (interaction.customId === "close") {
 await interaction.reply("🔒 Closing ticket...");
-closeTicket(channel);
+closeTicket(interaction.channel);
 }
 
 if (interaction.customId === "delete") {
 await interaction.reply("🗑 Deleting ticket...");
-channel.delete();
+interaction.channel.delete();
 }
 
 }
@@ -332,7 +317,7 @@ console.error(err);
 
 });
 
-// ================= ACTIVITY RESET =================
+// ================= RESET TIMER =================
 client.on("messageCreate", message => {
 if (!message.guild) return;
 if (message.channel.name.startsWith("ticket-")) {
