@@ -1,26 +1,28 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
+const {
+  Client,
+  GatewayIntentBits,
   PermissionsBitField,
-  SlashCommandBuilder, 
-  REST, 
+  SlashCommandBuilder,
+  REST,
   Routes,
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  ChannelType
+  ChannelType,
+  ActivityType
 } = require('discord.js');
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+const OWNER_ID = process.env.OWNER_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
 
 // Role IDs
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
-const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const RECRUIT_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
 
@@ -35,8 +37,8 @@ const client = new Client({
 
 /* ================= TICKET STORAGE ================= */
 let ticketCounter = 0;
-const activeTickets = new Map();
-const ticketData = new Map();
+const activeTickets = new Map(); // userId => channelId
+const ticketData = new Map(); // channelId => ticket info
 
 /* ================= SLASH COMMANDS ================= */
 const commands = [
@@ -63,24 +65,38 @@ const commands = [
     .setDescription('Ban a member')
     .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true)),
 
-  // Ticket commands
+  // Status command
+  new SlashCommandBuilder()
+    .setName('status')
+    .setDescription('Set bot status (Owner only)')
+    .addStringOption(opt => opt.setName('type').setDescription('Status type').setRequired(true)
+      .addChoices(
+        { name: "Playing", value: "PLAYING" },
+        { name: "Watching", value: "WATCHING" },
+        { name: "Listening", value: "LISTENING" },
+        { name: "Streaming", value: "STREAMING" }
+      ))
+    .addStringOption(opt => opt.setName('text').setDescription('Status text').setRequired(true)),
+
+  // Ticket panel
   new SlashCommandBuilder()
     .setName('ticketpanel')
     .setDescription('Send the ticket panel')
     .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send panel').setRequired(true))
     .addStringOption(opt => opt.setName('image').setDescription('Optional panel image URL')),
 
+  // Ticket management
   new SlashCommandBuilder()
     .setName('closeticket')
     .setDescription('Close the current ticket'),
 
   new SlashCommandBuilder()
-    .setName('deleteticket')
-    .setDescription('Delete the current ticket'),
-
-  new SlashCommandBuilder()
     .setName('reopenticket')
     .setDescription('Reopen a closed ticket'),
+
+  new SlashCommandBuilder()
+    .setName('deleteticket')
+    .setDescription('Delete the current ticket'),
 
   new SlashCommandBuilder()
     .setName('ticketuser')
@@ -138,6 +154,22 @@ client.on('interactionCreate', async interaction => {
           await member.ban();
           return interaction.reply(`🔨 Banned ${user.tag}`);
         }
+      }
+
+      // Status
+      if (interaction.commandName === 'status') {
+        if (interaction.user.id !== OWNER_ID) 
+          return interaction.reply({ content: '❌ Only bot owner can use this.', ephemeral: true });
+
+        const type = interaction.options.getString('type');
+        const text = interaction.options.getString('text');
+        let activityType = ActivityType.Playing;
+        if (type === "WATCHING") activityType = ActivityType.Watching;
+        if (type === "LISTENING") activityType = ActivityType.Listening;
+        if (type === "STREAMING") activityType = ActivityType.Streaming;
+
+        await client.user.setActivity(text, { type: activityType });
+        return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
       }
 
       // Ticket panel
@@ -210,7 +242,7 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         return interaction.reply({ content: "✅ Ticket reopened.", ephemeral: true });
       }
 
-      // Add/remove user
+      // Ticket add/remove user
       if (interaction.commandName === 'ticketuser') {
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
@@ -286,38 +318,6 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
 
       await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
       return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
-    }
-
-    // Ticket buttons
-    if (interaction.isButton()) {
-      const data = ticketData.get(interaction.channel.id);
-      if (!data) return interaction.reply({ content: "❌ Not a ticket channel.", ephemeral: true });
-
-      const memberRoles = interaction.member.roles.cache;
-      const allowedRoles = [GENERAL_ROLE_ID, RECRUITER_ROLE_ID, EXEC_ROLE_ID, PIREP_ROLE_ID];
-      const isStaff = memberRoles.some(r => allowedRoles.includes(r.id));
-      if (!isStaff) return interaction.reply({ content: "❌ Only staff can use this.", ephemeral: true });
-
-      const message = interaction.message;
-      const embed = EmbedBuilder.from(message.embeds[0]);
-
-      if (interaction.customId === "claim") {
-        data.claimedBy = interaction.user.id;
-        embed.data.fields[1].value = `<@${interaction.user.id}>`;
-        await interaction.channel.setName(`claimed-${interaction.channel.name}`);
-        await message.edit({ embeds: [embed] });
-        return interaction.update({ content: "✅ Ticket claimed.", components: message.components });
-      }
-
-      if (interaction.customId === "adduser") {
-        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true });
-        return interaction.reply({ content: `✅ You were added to the ticket.`, ephemeral: true });
-      }
-
-      if (interaction.customId === "removeuser") {
-        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: false, SendMessages: false });
-        return interaction.reply({ content: `✅ You were removed from the ticket.`, ephemeral: true });
-      }
     }
 
   } catch (err) {
