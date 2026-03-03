@@ -7,12 +7,13 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
-const CATEGORY_ID = process.env.CATEGORY_ID; // For private ticket channels
+const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID; // Ticket category
 const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID;
 const OWNER_ID = process.env.OWNER_ID;
 const PORT = process.env.PORT || 3000;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TICKET_LOG_CHANNEL_ID || !OWNER_ID) {
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TICKET_LOG_CHANNEL_ID || !OWNER_ID || !RECRUITER_ROLE_ID) {
     console.log("❌ Missing environment variables!");
     process.exit(1);
 }
@@ -20,7 +21,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TI
 // --- CLIENT ---
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// --- EXPRESS (for uptime) ---
+// --- EXPRESS (uptime) ---
 const app = express();
 app.get("/", (req, res) => res.send("Bot is online ✅"));
 app.listen(PORT, () => console.log(`🌐 Web server running on ${PORT}`));
@@ -89,26 +90,22 @@ client.on("interactionCreate", async interaction => {
             const targetChannel = interaction.options.getChannel("channel");
             const image = interaction.options.getString("image") || null;
 
-            if (!targetChannel || targetChannel.type !== ChannelType.GuildText)
-                return interaction.reply({ content: "❌ Invalid channel.", ephemeral: true });
-
             const panelEmbed = {
                 title: "QPVA Support Centre!",
                 description: `Welcome to the Akasa Air Virtual Support Center! ✈️
 Need assistance with Akasa Air services? You’re in the right place! Our dedicated <@&${SUPPORT_ROLE_ID}> is available to help you quickly and efficiently.
 
-How to Get Help:
-1. Click the 📩 Create a Ticket button below.
-2. Describe your issue or request in detail.
-3. Our support staff will respond as soon as possible.
+Please select a category below to get started, and we’ll connect you with the right support right away.
 
 We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈️`,
                 color: 0x00FF00,
                 image: image ? { url: image } : undefined
             };
 
-            const createBtn = new ButtonBuilder().setCustomId("create_ticket").setLabel("📩 Create a Ticket").setStyle(ButtonStyle.Primary);
-            const row = new ActionRowBuilder().addComponents(createBtn);
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId("create_general").setLabel("📩 General Support").setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId("create_recruit").setLabel("📝 Recruitment").setStyle(ButtonStyle.Secondary)
+            );
 
             await targetChannel.send({ embeds: [panelEmbed], components: [row] });
             return interaction.reply({ content: `✅ Panel sent in ${targetChannel}`, ephemeral: true });
@@ -164,7 +161,6 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             await msg.edit({ components: [buttons] });
             client.giveaways.set(msg.id, { participants, prize, endsOn });
 
-            // End giveaway after timeout
             setTimeout(async () => {
                 const data = client.giveaways.get(msg.id);
                 if (!data) return;
@@ -192,17 +188,20 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
         }
     }
 
-    // --- BUTTONS ---
+    // --- BUTTON INTERACTIONS ---
     if (interaction.isButton()) {
         const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
 
-        // --- TICKET CREATE ---
-        if (interaction.customId === "create_ticket") {
+        // --- CREATE TICKET ---
+        if (interaction.customId === "create_general" || interaction.customId === "create_recruit") {
             const category = interaction.guild.channels.cache.get(CATEGORY_ID);
             if (!category) return interaction.reply({ content: "❌ Ticket category not found!", ephemeral: true });
 
+            const isRecruit = interaction.customId === "create_recruit";
+            const channelName = isRecruit ? `recruitment-${interaction.user.username}` : `ticket-${interaction.user.username}`;
+
             const channel = await interaction.guild.channels.create({
-                name: `ticket-${interaction.user.username}`,
+                name: channelName,
                 type: ChannelType.GuildText,
                 parent: category.id,
                 permissionOverwrites: [
@@ -213,10 +212,13 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
                 reason: `Ticket created by ${interaction.user.tag}`
             });
 
+            let content = isRecruit ? `<@&${RECRUITER_ROLE_ID}>` : "";
+
             const ticketEmbed = {
-                title: "🎫 Support Ticket",
-                description: "Thank you for contacting us. A support agent will be with you shortly.",
-                color: 0x00FF00,
+                title: isRecruit ? "📝 Recruitment Ticket" : "🎫 Support Ticket",
+                description: isRecruit ? "Thank you for joining Akasa Air Virtual! Our Recruitment Team will contact you shortly." :
+                    "Thank you for contacting us. A support agent will be with you shortly.",
+                color: isRecruit ? 0x00AAFF : 0x00FF00,
                 fields: [
                     { name: "Opened by", value: `<@${interaction.user.id}>`, inline: true },
                     { name: "Claimed by", value: "None", inline: true }
@@ -226,76 +228,59 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
 
             const buttons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`claim_ticket_${channel.id}`).setLabel("🛡 Claim Ticket").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`close_ticket_${channel.id}`).setLabel("❌ Close Ticket").setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId(`close_ticket_${channel.id}`).setLabel("❌ Close Ticket").setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`reopen_ticket_${channel.id}`).setLabel("♻ Reopen Ticket").setStyle(ButtonStyle.Secondary)
             );
 
-            await channel.send({ content: `<@&${SUPPORT_ROLE_ID}>`, embeds: [ticketEmbed], components: [buttons] });
+            await channel.send({ content, embeds: [ticketEmbed], components: [buttons] });
 
-            if (logChannel) logChannel.send({ embeds: [{ title: "🎫 Ticket Created", description: `Ticket **${channel.name}** created by <@${interaction.user.id}>`, color: 0x00FF00, timestamp: new Date() }] });
+            if (logChannel) logChannel.send({ embeds: [{ title: isRecruit ? "📝 Recruitment Ticket Created" : "🎫 Ticket Created", description: `Ticket **${channel.name}** created by <@${interaction.user.id}>`, color: isRecruit ? 0x00AAFF : 0x00FF00, timestamp: new Date() }] });
 
-            return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
+            return interaction.reply({ content: `✅ ${isRecruit ? "Recruitment" : "Support"} ticket created: ${channel}`, ephemeral: true });
         }
 
-        // --- TICKET CLAIM/CLOSE BUTTON HANDLER ---
-if (interaction.isButton()) {
-    const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+        // --- CLAIM / CLOSE / REOPEN ---
+        if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_") || interaction.customId.startsWith("reopen_ticket_")) {
+            const [action, , ticketId] = interaction.customId.split("_");
+            const ticketChannel = interaction.guild.channels.cache.get(ticketId);
+            if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
 
-    // Claim or Close buttons
-    if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
-        const [action, , ticketId] = interaction.customId.split("_");
-        const ticketChannel = interaction.guild.channels.cache.get(ticketId);
-        if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
+            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
+                return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
 
-        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
-            return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
+            await interaction.deferUpdate(); // prevent interaction failed
+            const ticketMessage = (await ticketChannel.messages.fetch()).find(m => m.components.length);
+            if (!ticketMessage) return;
+            const embed = ticketMessage.embeds[0].toJSON();
 
-        // ✅ Immediately acknowledge interaction
-        await interaction.deferUpdate();
+            // --- CLAIM ---
+            if (action === "claim") {
+                embed.fields[1].value = `<@${interaction.user.id}>`;
+                await ticketMessage.edit({ embeds: [embed] });
+                if (logChannel) logChannel.send({ embeds: [{ title: "🛡 Ticket Claimed", description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`, color: 0xFFFF00, timestamp: new Date() }] });
+            }
 
-        // Fetch the original ticket message (the one with buttons)
-        const ticketMessage = (await ticketChannel.messages.fetch()).find(m => m.components.length);
-        if (!ticketMessage) return;
+            // --- CLOSE ---
+            if (action === "close") {
+                const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
+                await ticketMessage.edit({ components: disabled });
+                const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
+                await ticketChannel.permissionOverwrites.edit(ticketUserId, { SendMessages: false });
+                await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+                if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+            }
 
-        const embed = ticketMessage.embeds[0].toJSON();
-
-        if (action === "claim") {
-            embed.fields[1].value = `<@${interaction.user.id}>`;
-            await ticketMessage.edit({ embeds: [embed] });
-
-            if (logChannel) logChannel.send({
-                embeds: [{
-                    title: "🛡 Ticket Claimed",
-                    description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`,
-                    color: 0xFFFF00,
-                    timestamp: new Date()
-                }]
-            });
+            // --- REOPEN ---
+            if (action === "reopen") {
+                const enabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(false)); return row; });
+                await ticketMessage.edit({ components: enabled });
+                const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
+                await ticketChannel.permissionOverwrites.edit(ticketUserId, { SendMessages: true });
+                await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: true });
+                if (logChannel) logChannel.send({ embeds: [{ title: "♻ Ticket Reopened", description: `Ticket **${ticketChannel.name}** reopened by <@${interaction.user.id}>`, color: 0x00FF00, timestamp: new Date() }] });
+            }
         }
 
-        if (action === "close") {
-            // Disable all buttons
-            const disabled = ticketMessage.components.map(row => {
-                row.components.forEach(c => c.setDisabled(true));
-                return row;
-            });
-            await ticketMessage.edit({ components: disabled });
-
-            // Remove SendMessages for user & staff
-            await ticketChannel.permissionOverwrites.edit(ticketChannel.permissionOverwrites.cache.find(p => p.allow.has("SendMessages")).id, { SendMessages: false });
-            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
-
-            if (logChannel) logChannel.send({
-                embeds: [{
-                    title: "❌ Ticket Closed",
-                    description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`,
-                    color: 0xFF0000,
-                    timestamp: new Date()
-                }]
-            });
-        }
-    }
-}
-        
         // --- GIVEAWAY BUTTONS ---
         if (interaction.customId.startsWith("giveaway_")) {
             const parts = interaction.customId.split("_");
