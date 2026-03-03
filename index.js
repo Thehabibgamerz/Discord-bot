@@ -19,7 +19,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SUPPORT_ROLE_ID || !CATEGORY_ID || !TI
 }
 
 // --- CLIENT ---
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 // --- EXPRESS (uptime) ---
 const app = express();
@@ -215,7 +215,7 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             // ✅ Ping correct role
             let content;
             if (isRecruit) content = `<@&${RECRUITER_ROLE_ID}>`;
-            else content = `<@&${SUPPORT_ROLE_ID}>`; // ping staff
+            else content = `<@&${SUPPORT_ROLE_ID}>`;
 
             const ticketEmbed = {
                 title: isRecruit ? "📝 Recruitment Ticket" : "🎫 Support Ticket",
@@ -296,6 +296,50 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
             embed.fields[2].value = data.participants.size > 0 ? [...data.participants].map(id => `<@${id}>`).join("\n") : "None";
             await interaction.update({ embeds: [embed] });
         }
+    }
+});
+
+// --- MESSAGE BASED CLOSE COMMAND ---
+client.on("messageCreate", async message => {
+    if (message.author.bot) return;
+    
+    if (message.content.toLowerCase() === "!closeticket") {
+        const logChannel = message.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+
+        if (!message.member.roles.cache.has(SUPPORT_ROLE_ID)) {
+            return message.reply("❌ Only staff can close tickets.");
+        }
+
+        if (!message.channel.name.startsWith("ticket-") && !message.channel.name.startsWith("recruitment-")) {
+            return message.reply("❌ This is not a ticket channel.");
+        }
+
+        const ticketMessage = (await message.channel.messages.fetch({ limit: 10 })).find(m => m.components.length);
+        if (ticketMessage) {
+            const disabled = ticketMessage.components.map(row => {
+                row.components.forEach(c => c.setDisabled(true));
+                return row;
+            });
+            await ticketMessage.edit({ components: disabled });
+        }
+
+        const embed = ticketMessage?.embeds[0];
+        if (embed) {
+            const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
+            await message.channel.permissionOverwrites.edit(ticketUserId, { SendMessages: false });
+            await message.channel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+        }
+
+        if (logChannel) logChannel.send({
+            embeds: [{
+                title: "❌ Ticket Closed",
+                description: `Ticket **${message.channel.name}** closed by <@${message.author.id}>`,
+                color: 0xFF0000,
+                timestamp: new Date()
+            }]
+        });
+
+        return message.reply("✅ Ticket closed successfully.");
     }
 });
 
