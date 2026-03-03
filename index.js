@@ -84,8 +84,8 @@ client.once("ready", () => console.log(`🤖 Logged in as ${client.user.tag}`));
 
 // ---------------------- INTERACTION HANDLER ----------------------
 client.on("interactionCreate", async interaction => {
-    // --- SLASH COMMANDS ---
     if (interaction.isChatInputCommand()) {
+        // ----------------- PANEL -----------------
         if (interaction.commandName === "panel") {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
                 return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
@@ -112,6 +112,7 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ Panel sent in ${targetChannel}`, ephemeral: true });
         }
 
+        // ----------------- STATUS -----------------
         if (interaction.commandName === "status") {
             if (interaction.user.id !== OWNER_ID)
                 return interaction.reply({ content: "❌ Only bot owner can use this.", ephemeral: true });
@@ -127,6 +128,7 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
         }
 
+        // ----------------- GIVEAWAY -----------------
         if (interaction.commandName === "giveaway") {
             const title = interaction.options.getString("title");
             const description = interaction.options.getString("description");
@@ -191,7 +193,7 @@ Please select a category below to get started.`,
     if (interaction.isButton()) {
         const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
 
-        // TICKET PANEL BUTTONS
+        // ----------------- TICKET PANEL -----------------
         if (interaction.customId === "create_general" || interaction.customId === "create_recruit") {
             const category = interaction.guild.channels.cache.get(CATEGORY_ID);
             const isRecruit = interaction.customId === "create_recruit";
@@ -204,7 +206,8 @@ Please select a category below to get started.`,
                 permissionOverwrites: [
                     { id: interaction.guild.roles.everyone, deny: ['ViewChannel'] },
                     { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-                    { id: SUPPORT_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+                    { id: SUPPORT_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+                    { id: RECRUITER_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
                 ]
             });
 
@@ -225,7 +228,7 @@ Please select a category below to get started.`,
             const buttons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`claim_ticket_${channel.id}`).setLabel("🛡 Claim Ticket").setStyle(ButtonStyle.Success),
                 new ButtonBuilder().setCustomId(`close_ticket_${channel.id}`).setLabel("❌ Close Ticket").setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`reopen_ticket_${channel.id}`).setLabel("♻ Reopen Ticket").setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId(`delete_ticket_${channel.id}`).setLabel("🗑 Delete Ticket").setStyle(ButtonStyle.Secondary)
             );
 
             await channel.send({ content: rolePing, embeds: [ticketEmbed], components: [buttons] });
@@ -235,12 +238,11 @@ Please select a category below to get started.`,
             return interaction.reply({ content: `✅ ${isRecruit ? "Recruitment" : "Support"} ticket created: ${channel}`, ephemeral: true });
         }
 
-        // CLAIM / CLOSE / REOPEN / DELETE
+        // ----------------- CLAIM / CLOSE / DELETE -----------------
         const [action, , channelId] = interaction.customId.split("_");
         if (!channelId) return;
         const ticketChannel = interaction.guild.channels.cache.get(channelId);
         if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
-
         const ticketMessage = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
         if (!ticketMessage) return interaction.reply({ content: "❌ Ticket message not found.", ephemeral: true });
 
@@ -256,46 +258,30 @@ Please select a category below to get started.`,
         // CLOSE
         if (action === "close") {
             if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can close tickets.", ephemeral: true });
-
-            // Disable old buttons & add delete
             const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
+            await ticketMessage.edit({ components: disabled });
+
+            await ticketChannel.permissionOverwrites.edit(ticketChannel.guild.roles.everyone, { ViewChannel: false });
+            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+            if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+
+            // Send delete button
             const deleteRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`delete_ticket_${ticketChannel.id}`).setLabel("🗑 Delete Ticket").setStyle(ButtonStyle.Danger)
             );
+            await ticketChannel.send({ content: "Ticket closed. Staff can delete the ticket:", components: [deleteRow] });
 
-            await ticketMessage.edit({ components: disabled.concat(deleteRow) });
-            await ticketChannel.permissionOverwrites.edit(ticketChannel.guild.roles.everyone, { ViewChannel: false });
-            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
-
-            if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-            return interaction.reply({ content: "✅ Ticket closed. You can now delete it.", ephemeral: true });
-        }
-
-        // REOPEN
-        if (action === "reopen") {
-            if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can reopen tickets.", ephemeral: true });
-            const enabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(false)); return row; });
-            await ticketMessage.edit({ components: enabled });
-
-            const embed = ticketMessage.embeds[0].toJSON();
-            const openerId = embed.fields[0].value.replace(/[<@!>]/g, "");
-            await ticketChannel.permissionOverwrites.edit(openerId, { SendMessages: true, ViewChannel: true });
-            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: true, ViewChannel: true });
-
-            if (logChannel) logChannel.send({ embeds: [{ title: "♻ Ticket Reopened", description: `Ticket **${ticketChannel.name}** reopened by <@${interaction.user.id}>`, color: 0x00FF00, timestamp: new Date() }] });
-            return interaction.reply({ content: "✅ Ticket reopened successfully.", ephemeral: true });
+            return interaction.reply({ content: "✅ Ticket closed successfully.", ephemeral: true });
         }
 
         // DELETE
         if (action === "delete") {
             if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID)) return interaction.reply({ content: "❌ Only staff can delete tickets.", ephemeral: true });
-            const ticketName = ticketChannel.name;
-            await ticketChannel.delete().catch(() => {});
-            if (logChannel) logChannel.send({ embeds: [{ title: "🗑 Ticket Deleted", description: `Ticket **${ticketName}** deleted by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-            return interaction.reply({ content: "✅ Ticket deleted successfully.", ephemeral: true });
+            if (logChannel) logChannel.send({ embeds: [{ title: "🗑 Ticket Deleted", description: `Ticket **${ticketChannel.name}** deleted by <@${interaction.user.id}>`, color: 0xFF0000, timestamp: new Date() }] });
+            await ticketChannel.delete();
         }
 
-        // GIVEAWAY BUTTONS
+        // ----------------- GIVEAWAY BUTTONS -----------------
         if (interaction.customId.startsWith("giveaway_")) {
             const parts = interaction.customId.split("_");
             const msgId = parts[1];
@@ -311,32 +297,6 @@ Please select a category below to get started.`,
             await interaction.update({ embeds: [embed] });
         }
     }
-});
-
-// ---------------------- MESSAGE COMMAND !closeticket ----------------------
-client.on("messageCreate", async message => {
-    if (message.author.bot) return;
-    if (message.content.toLowerCase() !== "!closeticket") return;
-
-    const logChannel = message.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
-    if (!message.member.roles.cache.has(SUPPORT_ROLE_ID)) return message.reply("❌ Only staff can close tickets.");
-    if (!message.channel.name.startsWith("ticket-") && !message.channel.name.startsWith("recruitment-")) return message.reply("❌ This is not a ticket channel.");
-
-    const ticketMessage = (await message.channel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-    if (ticketMessage) {
-        const disabled = ticketMessage.components.map(row => { row.components.forEach(c => c.setDisabled(true)); return row; });
-        await ticketMessage.edit({ components: disabled });
-    }
-
-    const embed = ticketMessage?.embeds[0];
-    if (embed) {
-        const ticketUserId = embed.fields[0].value.replace(/[<@!>]/g, "");
-        await message.channel.permissionOverwrites.edit(ticketUserId, { SendMessages: false });
-        await message.channel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
-    }
-
-    if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${message.channel.name}** closed by <@${message.author.id}>`, color: 0xFF0000, timestamp: new Date() }] });
-    return message.reply("✅
 });
 
 // ---------------------- LOGIN ----------------------
