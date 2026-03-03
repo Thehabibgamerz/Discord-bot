@@ -337,3 +337,7 @@ client.on("messageCreate", async message => {
 
     if (logChannel) logChannel.send({ embeds: [{ title: "❌ Ticket Closed", description: `Ticket **${message.channel.name}** closed by <@${message.author.id}>`, color: 0xFF0000, timestamp: new Date() }] });
     return message.reply("✅
+});
+
+// ---------------------- LOGIN ----------------------
+client.login(TOKEN);
