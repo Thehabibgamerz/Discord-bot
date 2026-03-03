@@ -84,7 +84,27 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('closeticket')
-    .setDescription('Close the current ticket')
+    .setDescription('Close the current ticket'),
+
+  new SlashCommandBuilder()
+    .setName('deleteticket')
+    .setDescription('Delete the current ticket'),
+
+  new SlashCommandBuilder()
+    .setName('ticketuser')
+    .setDescription('Add or remove a user from a ticket')
+    .addUserOption(opt =>
+      opt.setName('user')
+        .setDescription('User to add/remove')
+        .setRequired(true))
+    .addStringOption(opt =>
+      opt.setName('action')
+        .setDescription('Add or remove the user')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Add', value: 'add' },
+          { name: 'Remove', value: 'remove' }
+        ))
 ].map(cmd => cmd.toJSON());
 
 /* ================= READY ================= */
@@ -182,10 +202,40 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
 
+        // Lock channel
+        await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: false });
+        return interaction.reply({ content: "🔒 Ticket closed.", ephemeral: true });
+      }
+
+      // ----- DELETE TICKET -----
+      if (interaction.commandName === 'deleteticket') {
+        const data = ticketData.get(interaction.channel.id);
+        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
+
         ticketData.delete(interaction.channel.id);
         activeTickets.delete(data.openedBy);
-        return interaction.channel.delete();
+        await interaction.channel.delete();
       }
+
+      // ----- ADD/REMOVE USER -----
+      if (interaction.commandName === 'ticketuser') {
+        const data = ticketData.get(interaction.channel.id);
+        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
+
+        const user = interaction.options.getUser('user');
+        const action = interaction.options.getString('action');
+
+        if (action === 'add') {
+          await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true });
+          return interaction.reply({ content: `✅ Added ${user.tag} to the ticket.`, ephemeral: true });
+        }
+
+        if (action === 'remove') {
+          await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: false, SendMessages: false });
+          return interaction.reply({ content: `✅ Removed ${user.tag} from the ticket.`, ephemeral: true });
+        }
+      }
+
     }
 
     // ----------------- Ticket Creation -----------------
@@ -194,7 +244,6 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       if (activeTickets.has(interaction.user.id))
         return interaction.reply({ content: "❌ You already have an open ticket.", ephemeral: true });
 
-      // ✅ Fix for "This interaction failed"
       await interaction.deferReply({ ephemeral: true });
 
       ticketCounter++;
@@ -226,7 +275,10 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       const embed = new EmbedBuilder()
         .setTitle(selected.name)
         .setDescription(`Thanks for creating a ticket! Our staff team will contact you shortly.`)
-        .addFields({ name: "Opened by", value: `<@${interaction.user.id}>` })
+        .addFields(
+          { name: "Opened by", value: `<@${interaction.user.id}>` },
+          { name: "Claimed by", value: `Not claimed yet` }
+        )
         .setColor(0x2ecc71);
 
       const buttons = new ActionRowBuilder().addComponents(
@@ -236,7 +288,6 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       );
 
       await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
-
       return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
     }
 
@@ -250,10 +301,15 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       const isStaff = memberRoles.some(r => allowedRoles.includes(r.id));
       if (!isStaff) return interaction.reply({ content: "❌ Only staff can use this.", ephemeral: true });
 
+      const message = interaction.message;
+      const embed = EmbedBuilder.from(message.embeds[0]);
+
       if (interaction.customId === "claim") {
         data.claimedBy = interaction.user.id;
+        embed.data.fields[1].value = `<@${interaction.user.id}>`;
         await interaction.channel.setName(`claimed-${interaction.channel.name}`);
-        return interaction.update({ content: "✅ Ticket claimed.", components: [] });
+        await message.edit({ embeds: [embed] });
+        return interaction.update({ content: "✅ Ticket claimed.", components: message.components });
       }
 
       if (interaction.customId === "adduser") {
