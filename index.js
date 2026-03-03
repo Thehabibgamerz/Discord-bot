@@ -237,42 +237,62 @@ We’re here to make your journey with Akasa Air smooth and stress-free! 🌍✈
         }
 
         // --- TICKET CLAIM/CLOSE BUTTON HANDLER ---
-if (interaction.customId.startsWith("close_ticket_")) {
-    const ticketId = interaction.customId.split("_")[2];
-    const ticketChannel = interaction.guild.channels.cache.get(ticketId);
-    if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
-
-    if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
-        return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
-
-    // ✅ Immediately acknowledge to prevent interaction failed
-    await interaction.deferUpdate();
-
-    // Disable all buttons
-    const ticketMessage = (await ticketChannel.messages.fetch({ limit: 10 })).find(m => m.components.length);
-    if (ticketMessage) {
-        const disabled = ticketMessage.components.map(row => {
-            row.components.forEach(c => c.setDisabled(true));
-            return row;
-        });
-        await ticketMessage.edit({ components: disabled });
-    }
-
-    // Remove SendMessages for user and staff
-    await ticketChannel.permissionOverwrites.edit(interaction.user.id, { SendMessages: false });
-    await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
-
-    // Log channel
+if (interaction.isButton()) {
     const logChannel = interaction.guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
-    if (logChannel) {
-        logChannel.send({
-            embeds: [{
-                title: "❌ Ticket Closed",
-                description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`,
-                color: 0xFF0000,
-                timestamp: new Date()
-            }]
-        });
+
+    // Claim or Close buttons
+    if (interaction.customId.startsWith("claim_ticket_") || interaction.customId.startsWith("close_ticket_")) {
+        const [action, , ticketId] = interaction.customId.split("_");
+        const ticketChannel = interaction.guild.channels.cache.get(ticketId);
+        if (!ticketChannel) return interaction.reply({ content: "❌ Ticket channel not found.", ephemeral: true });
+
+        if (!interaction.member.roles.cache.has(SUPPORT_ROLE_ID))
+            return interaction.reply({ content: "❌ Only staff can perform this action.", ephemeral: true });
+
+        // ✅ Immediately acknowledge interaction
+        await interaction.deferUpdate();
+
+        // Fetch the original ticket message (the one with buttons)
+        const ticketMessage = (await ticketChannel.messages.fetch()).find(m => m.components.length);
+        if (!ticketMessage) return;
+
+        const embed = ticketMessage.embeds[0].toJSON();
+
+        if (action === "claim") {
+            embed.fields[1].value = `<@${interaction.user.id}>`;
+            await ticketMessage.edit({ embeds: [embed] });
+
+            if (logChannel) logChannel.send({
+                embeds: [{
+                    title: "🛡 Ticket Claimed",
+                    description: `Ticket **${ticketChannel.name}** claimed by <@${interaction.user.id}>`,
+                    color: 0xFFFF00,
+                    timestamp: new Date()
+                }]
+            });
+        }
+
+        if (action === "close") {
+            // Disable all buttons
+            const disabled = ticketMessage.components.map(row => {
+                row.components.forEach(c => c.setDisabled(true));
+                return row;
+            });
+            await ticketMessage.edit({ components: disabled });
+
+            // Remove SendMessages for user & staff
+            await ticketChannel.permissionOverwrites.edit(ticketChannel.permissionOverwrites.cache.find(p => p.allow.has("SendMessages")).id, { SendMessages: false });
+            await ticketChannel.permissionOverwrites.edit(SUPPORT_ROLE_ID, { SendMessages: false });
+
+            if (logChannel) logChannel.send({
+                embeds: [{
+                    title: "❌ Ticket Closed",
+                    description: `Ticket **${ticketChannel.name}** closed by <@${interaction.user.id}>`,
+                    color: 0xFF0000,
+                    timestamp: new Date()
+                }]
+            });
+        }
     }
 }
         
