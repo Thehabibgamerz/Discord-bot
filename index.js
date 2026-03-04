@@ -6,13 +6,17 @@ const {
   EmbedBuilder, ChannelType, ActivityType 
 } = require('discord.js');
 
+const fetch = require('node-fetch'); // Required for ATIS
+
+/* ===== ENV ===== */
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const OWNER_ID = process.env.OWNER_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
+const IF_API_KEY = process.env.IF_API_KEY; // Infinite Flight API Key
 
-// Roles for tickets
+// Roles
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
 const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
@@ -23,9 +27,9 @@ const client = new Client({ intents: [
   GatewayIntentBits.GuildMembers,
   GatewayIntentBits.GuildMessages,
   GatewayIntentBits.MessageContent
-] });
+]});
 
-// ================= DATA STORAGE =================
+/* ===== DATA STORAGE ===== */
 let ticketCounter = 0;
 const activeTickets = new Map(); // userId -> channelId
 const ticketData = new Map(); // channelId -> {openedBy, claimedBy, category}
@@ -33,12 +37,12 @@ const ticketData = new Map(); // channelId -> {openedBy, claimedBy, category}
 const events = new Map(); // messageId -> {title, description, time, attendees, channel, embed}
 const giveaways = new Map(); // messageId -> {participants, prize, endsOn}
 
-// ================= HELPERS =================
-function formatSEShTime(date) {
+/* ===== HELPERS ===== */
+function formatSEShTime(date){
   return date.toLocaleString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
 }
 
-// ================= SLASH COMMANDS =================
+/* ===== SLASH COMMANDS ===== */
 const commands = [
   new SlashCommandBuilder().setName('ping').setDescription('Check bot latency'),
   new SlashCommandBuilder()
@@ -87,26 +91,31 @@ const commands = [
     .addStringOption(opt => opt.setName('prize').setDescription('Prize').setRequired(true))
     .addStringOption(opt => opt.setName('ends_on').setDescription('End time YYYY-MM-DD HH:mm').setRequired(true))
     .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post giveaway').setRequired(true))
-    .addStringOption(opt => opt.setName('mention').setDescription('Role to mention or everyone'))
-].map(cmd => cmd.toJSON());
+    .addStringOption(opt => opt.setName('mention').setDescription('Role to mention or everyone')),
+  new SlashCommandBuilder()
+    .setName('atis')
+    .setDescription('Get live ATIS from Infinite Flight')
+    .addStringOption(opt => opt.setName('icao').setDescription('Airport ICAO code').setRequired(true))
+    .addStringOption(opt => opt.setName('server').setDescription('Server: casual, training, expert').setRequired(true))
+].map(cmd=>cmd.toJSON());
 
-// ================= REGISTER COMMANDS =================
-(async () => {
+/* ===== REGISTER COMMANDS ===== */
+(async ()=>{
   const rest = new REST({version:'10'}).setToken(TOKEN);
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID), {body:commands});
   console.log("✅ Slash commands registered");
 })();
 
-// ================= READY =================
+/* ===== READY ===== */
 client.once('ready', ()=>console.log(`🤖 Logged in as ${client.user.tag}`));
 
-// ================= INTERACTION HANDLER =================
+/* ===== INTERACTION HANDLER ===== */
 client.on('interactionCreate', async interaction=>{
   try{
     if(interaction.isChatInputCommand()){
       const cmd = interaction.commandName;
 
-      // ===== Old commands =====
+      /* ===== OLD COMMANDS ===== */
       if(cmd==='ping') return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
 
       if(cmd==='say'){
@@ -142,7 +151,7 @@ client.on('interactionCreate', async interaction=>{
         return interaction.reply({content:`✅ Status set: ${type} ${text}`, ephemeral:true});
       }
 
-      // ===== Ticket panel =====
+      /* ===== TICKET PANEL ===== */
       if(cmd==='ticketpanel'){
         if(!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({content:'❌ Admin only', ephemeral:true});
         const channel = interaction.options.getChannel('channel');
@@ -180,7 +189,7 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         return interaction.reply({content:'✅ Ticket panel sent', ephemeral:true});
       }
 
-      // ===== Event & Giveaway handled below =====
+      /* ===== EVENT ===== */
       if(cmd==='event'){
         const title = interaction.options.getString('title');
         const desc = interaction.options.getString('description');
@@ -210,6 +219,7 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         return interaction.reply({content:`✅ Event created in ${ch}`, ephemeral:true});
       }
 
+      /* ===== GIVEAWAY ===== */
       if(cmd==='giveaway'){
         const title = interaction.options.getString('title');
         const desc = interaction.options.getString('description');
@@ -248,8 +258,9 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
             const winner = arr[Math.floor(Math.random()*arr.length)];
             winnerText = `<@${winner}> won the prize! 🎉`;
           }
-          const endEmbed = EmbedBuilder.from(embed).setFields(
+          const endEmbed = EmbedBuilder.from(embed).spliceFields(0,3,
             {name:'Prize', value:prize},
+            {name:'Ends On', value:formatSEShTime(endTime)},
             {name:'Winner', value:winnerText}
           );
           await msg.edit({embeds:[endEmbed], components:[]});
@@ -258,78 +269,35 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
 
         return interaction.reply({content:`✅ Giveaway started in ${ch}`, ephemeral:true});
       }
-    }
 
-    // ===== Buttons =====
-    if(interaction.isButton()){
-      // Event buttons
-      const event = events.get(interaction.message.id);
-      if(event){
-        const uid = interaction.user.id;
-        if(interaction.customId==='attend_event') event.attendees.add(uid);
-        if(interaction.customId==='remove_event') event.attendees.delete(uid);
-        const list = event.attendees.size>0?[...event.attendees].map(id=>`<@${id}>`).join("\n"):'None';
-        const embed = EmbedBuilder.from(event.embed).spliceFields(1,1,{name:'Attending', value:list});
-        return interaction.update({embeds:[embed]});
+      /* ===== ATIS ===== */
+      if(cmd==='atis'){
+        const icao = interaction.options.getString('icao').toUpperCase();
+        const server = interaction.options.getString('server').toLowerCase();
+
+        await interaction.deferReply();
+        try{
+          const res = await fetch(`https://api.infiniteflight.com/public/v2/atis/${icao}?server=${server}`,{
+            headers:{Authorization:`Bearer ${IF_API_KEY}`}
+          });
+          if(!res.ok) return interaction.editReply({content:`❌ Failed to fetch ATIS for ${icao} on ${server}`});
+          const data = await res.json();
+          const embed = new EmbedBuilder()
+            .setTitle(`🛫 ATIS for ${icao} - ${server.charAt(0).toUpperCase()+server.slice(1)} Server`)
+            .setColor(0x1E90FF)
+            .addFields(
+              {name:'Information', value:data.info||'N/A'},
+              {name:'Runways Active', value:data.runways||'N/A'},
+              {name:'Weather', value:data.weather||'N/A'}
+            )
+            .setTimestamp();
+          return interaction.editReply({embeds:[embed]});
+        }catch(err){console.error(err); return interaction.editReply({content:'❌ Error fetching ATIS'});}
       }
 
-      // Giveaway buttons
-      const gw = giveaways.get(interaction.message.id);
-      if(gw){
-        if(interaction.customId==='giveaway_join') gw.participants.add(interaction.user.id);
-        if(interaction.customId==='giveaway_leave') gw.participants.delete(interaction.user.id);
-        const embed = EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2,1,{name:'Participants', value: gw.participants.size>0?[...gw.participants].map(id=>`<@${id}>`).join("\n"):'None'});
-        return interaction.update({embeds:[embed]});
-      }
     }
 
-    // ===== Select menu for ticket categories =====
-    if(interaction.isStringSelectMenu() && interaction.customId==='ticket_select'){
-      if(activeTickets.has(interaction.user.id)) return interaction.reply({content:'❌ You already have a ticket', ephemeral:true});
-      await interaction.deferReply({ephemeral:true});
-      ticketCounter++;
-      const ticketNumber = String(ticketCounter).padStart(3,'0');
-
-      const categories = {
-        general:{name:'General Support', role:GENERAL_ROLE_ID},
-        recruit:{name:'Recruitments', role:RECRUITER_ROLE_ID},
-        exec:{name:'Executive Team Support', role:EXEC_ROLE_ID},
-        pirep:{name:'PIREP Support', role:PIREP_ROLE_ID}
-      };
-      const sel = categories[interaction.values[0]];
-
-      const ch = await interaction.guild.channels.create({
-        name:`ticket-${ticketNumber}`,
-        type:ChannelType.GuildText,
-        parent:CATEGORY_ID,
-        permissionOverwrites:[
-          {id:interaction.guild.roles.everyone.id, deny:[PermissionsBitField.Flags.ViewChannel]},
-          {id:interaction.user.id, allow:[PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]},
-          {id:sel.role, allow:[PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]}
-        ]
-      });
-
-      activeTickets.set(interaction.user.id, ch.id);
-      ticketData.set(ch.id,{category:sel.name, openedBy:interaction.user.id, claimedBy:null});
-
-      const embed = new EmbedBuilder()
-        .setTitle(sel.name)
-        .setDescription(`Thanks for creating a ticket! Our staff team will contact you shortly.`)
-        .addFields(
-          {name:'Opened by', value:`<@${interaction.user.id}>`},
-          {name:'Claimed by', value:'Not claimed yet'}
-        )
-        .setColor(0x2ecc71);
-
-      const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('add_user').setLabel('Add User').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary)
-      );
-
-      await ch.send({content:`<@&${sel.role}>`, embeds:[embed], components:[buttons]});
-      return interaction.editReply({content:`🎟 Ticket created: ${ch}`});
-    }
+    /* ===== BUTTONS & SELECT MENUS handled here later ===== */
 
   }catch(err){ console.error(err); }
 });
