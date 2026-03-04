@@ -8,6 +8,7 @@ const {
 const fs = require('fs');
 const cron = require('node-cron');
 const fetch = require('node-fetch');
+const path = require('path');
 
 /* ===== ENV ===== */
 const TOKEN = process.env.TOKEN;
@@ -32,19 +33,20 @@ const client = new Client({ intents: [
 ]});
 
 // ================= DATA STORAGE =================
-if(!fs.existsSync('./database.json')){
-  fs.writeFileSync('./database.json', JSON.stringify({
+const DB_FILE = './database.json';
+if(!fs.existsSync(DB_FILE)){
+  fs.writeFileSync(DB_FILE, JSON.stringify({
     tickets:{}, // ticketNumber -> {userId, channelId, claimedBy, category}
     ticketCounter:0,
-    events:{}, // messageId -> {title, description, time, attendees, channel, embed}
-    giveaways:{}, // messageId -> {participants, prize, endsOn}
-    routes:{}, // YYYY-MM-DD -> {multiplier, routes}
-    weeklyRoutes:{}, // Monday-Sunday -> {multiplier, routes}
+    events:{},
+    giveaways:{},
+    routes:{},
+    weeklyRoutes:{},
     routeSettings:{channelId:null, roleId:null}
   }, null,2));
 }
-let db = JSON.parse(fs.readFileSync('./database.json'));
-const saveDB = ()=> fs.writeFileSync('./database.json', JSON.stringify(db, null,2));
+let db = JSON.parse(fs.readFileSync(DB_FILE));
+const saveDB = ()=> fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2));
 
 // ================= HELPERS =================
 function formatSEShTime(date){
@@ -59,62 +61,46 @@ function generateTicketNumber(){
 
 // ================= SLASH COMMANDS =================
 const commands = [
-  // --- OLD COMMANDS ---
   new SlashCommandBuilder().setName('ping').setDescription('Check bot latency'),
   new SlashCommandBuilder()
     .setName('say')
     .setDescription('Make the bot say something')
-    .addStringOption(opt => opt.setName('text').setDescription('Message').setRequired(true))
-    .addChannelOption(opt => opt.setName('channel').setDescription('Optional channel')),
+    .addStringOption(opt=>opt.setName('text').setDescription('Message').setRequired(true))
+    .addChannelOption(opt=>opt.setName('channel').setDescription('Optional channel')),
   new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Kick a member')
-    .addUserOption(opt => opt.setName('user').setDescription('User to kick').setRequired(true)),
+    .addUserOption(opt=>opt.setName('user').setDescription('User to kick').setRequired(true)),
   new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Ban a member')
-    .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true)),
+    .addUserOption(opt=>opt.setName('user').setDescription('User to ban').setRequired(true)),
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('Set bot status (owner only)')
-    .addStringOption(opt => opt.setName('type').setDescription('Status type').setRequired(true)
+    .addStringOption(opt=>opt.setName('type').setDescription('Status type').setRequired(true)
       .addChoices(
         {name:"Playing", value:"PLAYING"},
         {name:"Watching", value:"WATCHING"},
         {name:"Listening", value:"LISTENING"},
         {name:"Streaming", value:"STREAMING"}
       ))
-    .addStringOption(opt => opt.setName('text').setDescription('Status text').setRequired(true)),
+    .addStringOption(opt=>opt.setName('text').setDescription('Status text').setRequired(true)),
   new SlashCommandBuilder()
     .setName('ticketpanel')
     .setDescription('Send the ticket panel')
-    .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send panel').setRequired(true))
-    .addStringOption(opt => opt.setName('image').setDescription('Optional panel image URL')),
-  new SlashCommandBuilder()
-    .setName('event')
-    .setDescription('Create a new event')
-    .addStringOption(opt => opt.setName('title').setDescription('Event title').setRequired(true))
-    .addStringOption(opt => opt.setName('description').setDescription('Event description').setRequired(true))
-    .addStringOption(opt => opt.setName('time').setDescription('Event time YYYY-MM-DD HH:mm').setRequired(true))
-    .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post event').setRequired(true))
-    .addStringOption(opt => opt.setName('image').setDescription('Optional image URL'))
-    .addStringOption(opt => opt.setName('mention').setDescription('Role ID to mention')),
-  new SlashCommandBuilder()
-    .setName('giveaway')
-    .setDescription('Create a giveaway')
-    .addStringOption(opt => opt.setName('title').setDescription('Title').setRequired(true))
-    .addStringOption(opt => opt.setName('description').setDescription('Description').setRequired(true))
-    .addStringOption(opt => opt.setName('prize').setDescription('Prize').setRequired(true))
-    .addStringOption(opt => opt.setName('ends_on').setDescription('End time YYYY-MM-DD HH:mm').setRequired(true))
-    .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post giveaway').setRequired(true))
-    .addStringOption(opt => opt.setName('mention').setDescription('Role to mention or everyone')),
-  new SlashCommandBuilder()
-    .setName('atis')
-    .setDescription('Get live ATIS from Infinite Flight')
-    .addStringOption(opt => opt.setName('icao').setDescription('Airport ICAO code').setRequired(true))
-    .addStringOption(opt => opt.setName('server').setDescription('Server: casual, training, expert').setRequired(true)),
+    .addChannelOption(opt=>opt.setName('channel').setDescription('Channel to send panel').setRequired(true))
+    .addStringOption(opt=>opt.setName('image').setDescription('Optional panel image URL')),
 
-  // --- FEATURED ROUTES ---
+  // Ticket commands
+  new SlashCommandBuilder().setName('closeticket').setDescription('Close a ticket (staff only)'),
+  new SlashCommandBuilder().setName('reopenticket').setDescription('Reopen a ticket (staff only)'),
+  new SlashCommandBuilder().setName('addusertoticket').setDescription('Add user to ticket')
+    .addUserOption(opt=>opt.setName('user').setDescription('User to add').setRequired(true)),
+  new SlashCommandBuilder().setName('removeuserfromticket').setDescription('Remove user from ticket')
+    .addUserOption(opt=>opt.setName('user').setDescription('User to remove').setRequired(true)),
+
+  // Featured Routes commands
   new SlashCommandBuilder()
     .setName('setroutechannel')
     .setDescription('Set channel for daily featured routes')
@@ -150,29 +136,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('removeroutes')
     .setDescription('Remove specific date routes')
-    .addStringOption(opt=>opt.setName('date').setDescription('YYYY-MM-DD').setRequired(true)),
-  new SlashCommandBuilder()
-    .setName('routedashboard')
-    .setDescription('View route system dashboard'),
-
-  // --- TICKET COMMANDS ---
-  new SlashCommandBuilder()
-    .setName('closeticket')
-    .setDescription('Close a ticket (staff only)'),
-  new SlashCommandBuilder()
-    .setName('reopenticket')
-    .setDescription('Reopen a closed ticket (staff only)'),
-  new SlashCommandBuilder()
-    .setName('addusertoticket')
-    .setDescription('Add user to ticket')
-    .addUserOption(opt=>opt.setName('user').setDescription('User to add').setRequired(true)),
-  new SlashCommandBuilder()
-    .setName('removeuserfromticket')
-    .setDescription('Remove user from ticket')
-    .addUserOption(opt=>opt.setName('user').setDescription('User to remove').setRequired(true))
+    .addStringOption(opt=>opt.setName('date').setDescription('YYYY-MM-DD').setRequired(true))
 ].map(cmd=>cmd.toJSON());
 
-// ================= REGISTER =================
+// ================= REGISTER COMMANDS =================
 (async()=>{
   const rest = new REST({version:'10'}).setToken(TOKEN);
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID), {body:commands});
@@ -182,36 +149,32 @@ const commands = [
 // ================= READY =================
 client.once('ready', ()=>console.log(`🤖 Logged in as ${client.user.tag}`));
 
-// ================= INTERACTIONS =================
+// ================= INTERACTION HANDLER =================
 client.on('interactionCreate', async interaction=>{
   try{
     if(interaction.isChatInputCommand()){
       const cmd = interaction.commandName;
 
-      // ----- OLD COMMANDS -----
+      // ---------------- OLD COMMANDS ----------------
       if(cmd==='ping') return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
-
       if(cmd==='say'){
         const text = interaction.options.getString('text');
         const channel = interaction.options.getChannel('channel') || interaction.channel;
         await channel.send(text);
         return interaction.reply({content:`✅ Message sent to ${channel}`, ephemeral:true});
       }
-
       if(cmd==='kick'){
         if(!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) return interaction.reply({content:'❌ No permission', ephemeral:true});
         const user = interaction.options.getUser('user');
         const member = interaction.guild.members.cache.get(user.id);
         if(member){ await member.kick(); return interaction.reply(`👢 Kicked ${user.tag}`);}
       }
-
       if(cmd==='ban'){
         if(!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return interaction.reply({content:'❌ No permission', ephemeral:true});
         const user = interaction.options.getUser('user');
         const member = interaction.guild.members.cache.get(user.id);
         if(member){ await member.ban(); return interaction.reply(`🔨 Banned ${user.tag}`);}
       }
-
       if(cmd==='status'){
         if(interaction.user.id!==OWNER_ID) return interaction.reply({content:'❌ Only owner', ephemeral:true});
         const type = interaction.options.getString('type');
@@ -224,32 +187,70 @@ client.on('interactionCreate', async interaction=>{
         return interaction.reply({content:`✅ Status set: ${type} ${text}`, ephemeral:true});
       }
 
-      // --- FEATURED ROUTES COMMANDS ---
+      // ---------------- TICKET PANEL ----------------
+      if(cmd==='ticketpanel'){
+        if(!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({content:'❌ Admin only', ephemeral:true});
+        const channel = interaction.options.getChannel('channel');
+        const image = interaction.options.getString('image');
+
+        const embed = new EmbedBuilder()
+          .setTitle("🎫 QPVA Support Centre ✈️")
+          .setDescription(`Welcome to the Akasa Air Virtual Support Center!
+Need assistance with any Akasa Air service? You’re in the right place! Our dedicated <@&${GENERAL_ROLE_ID}> is here to help you quickly and efficiently.
+
+Please select a category below to create a ticket:
+
+- General Support
+- Recruitments
+- Executive Team Support
+- PIREP Support
+
+We’re committed to making your journey with Akasa Air smooth and stress-free! 🌍✈️`)
+          .setColor(0xff6600)
+          .setImage(image||null);
+
+        const row = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId('ticket_select')
+            .setPlaceholder('🎟 Select a category')
+            .addOptions([
+              {label:'General Support', value:'general'},
+              {label:'Recruitments', value:'recruit'},
+              {label:'Executive Team Support', value:'exec'},
+              {label:'PIREP Support', value:'pirep'}
+            ])
+        );
+
+        await channel.send({embeds:[embed], components:[row]});
+        return interaction.reply({content:'✅ Ticket panel sent', ephemeral:true});
+      }
+
+      // ---------------- FEATURED ROUTES ----------------
       if(cmd==='setroutechannel'){
-        const ch = interaction.options.getChannel('channel');
-        db.routeSettings.channelId = ch.id;
+        db.routeSettings.channelId = interaction.options.getChannel('channel').id;
         saveDB();
-        return interaction.reply({content:`✅ Featured Routes channel set to ${ch}`, ephemeral:true});
+        return interaction.reply({content:'✅ Routes channel set', ephemeral:true});
       }
       if(cmd==='setrouterole'){
-        const role = interaction.options.getRole('role');
-        db.routeSettings.roleId = role.id;
+        db.routeSettings.roleId = interaction.options.getRole('role').id;
         saveDB();
-        return interaction.reply({content:`✅ Route ping role set to ${role}`, ephemeral:true});
+        return interaction.reply({content:'✅ Route ping role set', ephemeral:true});
       }
       if(cmd==='setroutes'){
         const date = interaction.options.getString('date');
-        const multiplier = interaction.options.getString('multiplier');
-        const routes = interaction.options.getString('routes');
-        db.routes[date] = {multiplier,routes};
+        db.routes[date] = {
+          multiplier: interaction.options.getString('multiplier'),
+          routes: interaction.options.getString('routes')
+        };
         saveDB();
         return interaction.reply({content:`✅ Routes set for ${date}`, ephemeral:true});
       }
       if(cmd==='setweeklyroutes'){
         const day = interaction.options.getString('day');
-        const multiplier = interaction.options.getString('multiplier');
-        const routes = interaction.options.getString('routes');
-        db.weeklyRoutes[day] = {multiplier,routes};
+        db.weeklyRoutes[day] = {
+          multiplier: interaction.options.getString('multiplier'),
+          routes: interaction.options.getString('routes')
+        };
         saveDB();
         return interaction.reply({content:`✅ Weekly routes set for ${day}`, ephemeral:true});
       }
@@ -260,20 +261,15 @@ client.on('interactionCreate', async interaction=>{
       }
       if(cmd==='removeroutes'){
         const date = interaction.options.getString('date');
-        delete db.routes[date];
-        saveDB();
+        delete db.routes[date]; saveDB();
         return interaction.reply({content:`✅ Routes removed for ${date}`, ephemeral:true});
       }
 
-      // --- TICKET COMMANDS ---
-      // Implement later fully with claim, close, add/remove user
-
-      // --- GIVEAWAY, EVENT, ATIS handled as before ---
     }
   }catch(err){console.error(err);}
 });
 
-// ================= FEATURED ROUTES AUTO-POST =================
+// ---------------- MIDNIGHT UTC AUTO POST FEATURED ROUTES ----------------
 cron.schedule("0 0 * * *", async ()=>{
   const todayDate = new Date().toISOString().split('T')[0];
   const chId = db.routeSettings.channelId;
@@ -283,7 +279,6 @@ cron.schedule("0 0 * * *", async ()=>{
 
   let data = db.routes[todayDate];
   if(!data){
-    // fallback to weekly
     const dayName = new Date().toLocaleDateString('en-US',{weekday:'long', timeZone:'UTC'});
     data = db.weeklyRoutes[dayName];
   }
