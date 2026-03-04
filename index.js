@@ -3,24 +3,16 @@ const {
   GatewayIntentBits,
   EmbedBuilder,
   SlashCommandBuilder,
-  ChannelType,
   PermissionsBitField
 } = require("discord.js");
 
 const cron = require("node-cron");
 const fs = require("fs");
 
-// ================= CONFIG =================
 const TOKEN = process.env.TOKEN;
-const ROUTE_ROLE = "YOUR_ROUTE_ROLE_ID";
 
-// ================= CLIENT =================
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
-  ]
+  intents: [GatewayIntentBits.Guilds]
 });
 
 // ================= DATABASE =================
@@ -29,7 +21,9 @@ if (!fs.existsSync("./database.json")) {
     tickets: {},
     giveaways: {},
     events: {},
-    routes: {}
+    routes: {},
+    weeklyRoutes: {},
+    routeSettings: { channelId: null, roleId: null }
   }, null, 2));
 }
 
@@ -43,67 +37,129 @@ client.once("clientReady", async () => {
 
   const commands = [
 
-    // ===== FEATURED ROUTES (UPGRADED) =====
+    // SET ROUTE CHANNEL
+    new SlashCommandBuilder()
+      .setName("setroutechannel")
+      .setDescription("Set channel for daily featured routes")
+      .addChannelOption(o =>
+        o.setName("channel")
+          .setDescription("Select channel")
+          .setRequired(true)),
+
+    // SET ROUTE ROLE
+    new SlashCommandBuilder()
+      .setName("setrouterole")
+      .setDescription("Set role to mention in route posts")
+      .addRoleOption(o =>
+        o.setName("role")
+          .setDescription("Select role")
+          .setRequired(true)),
+
+    // SET SPECIFIC DATE ROUTES
     new SlashCommandBuilder()
       .setName("setroutes")
-      .setDescription("Set daily featured routes")
+      .setDescription("Set routes for specific date")
       .addStringOption(o =>
         o.setName("date")
-          .setDescription("Date in format YYYY-MM-DD")
+          .setDescription("YYYY-MM-DD")
           .setRequired(true))
       .addStringOption(o =>
         o.setName("multiplier")
-          .setDescription("Multiplier (example: 2x)")
+          .setDescription("Example: 2x")
           .setRequired(true))
       .addStringOption(o =>
         o.setName("routes")
-          .setDescription("Routes format: emoji | flight number | route (separate by new line)")
+          .setDescription("Emoji | Flight No | Route (newline separated)")
+          .setRequired(true)),
+
+    // SET WEEKLY ROUTES
+    new SlashCommandBuilder()
+      .setName("setweeklyroutes")
+      .setDescription("Set weekly template routes")
+      .addStringOption(o =>
+        o.setName("day")
+          .setDescription("Day of week")
+          .setRequired(true)
+          .addChoices(
+            { name: "Monday", value: "Monday" },
+            { name: "Tuesday", value: "Tuesday" },
+            { name: "Wednesday", value: "Wednesday" },
+            { name: "Thursday", value: "Thursday" },
+            { name: "Friday", value: "Friday" },
+            { name: "Saturday", value: "Saturday" },
+            { name: "Sunday", value: "Sunday" }
+          ))
+      .addStringOption(o =>
+        o.setName("multiplier")
+          .setDescription("Example: 1.5x")
+          .setRequired(true))
+      .addStringOption(o =>
+        o.setName("routes")
+          .setDescription("Emoji | Flight No | Route (newline separated)")
           .setRequired(true)),
 
     new SlashCommandBuilder()
       .setName("viewroutes")
-      .setDescription("View all scheduled routes"),
+      .setDescription("View all routes"),
 
     new SlashCommandBuilder()
       .setName("removeroutes")
-      .setDescription("Remove routes for a date")
+      .setDescription("Remove specific date routes")
       .addStringOption(o =>
         o.setName("date")
-          .setDescription("Date YYYY-MM-DD")
-          .setRequired(true))
+          .setDescription("YYYY-MM-DD")
+          .setRequired(true)),
+
+    // ADMIN DASHBOARD
+    new SlashCommandBuilder()
+      .setName("routedashboard")
+      .setDescription("View route system dashboard")
   ];
 
   await client.application.commands.set(commands);
+
   console.log("✅ Slash commands registered");
 
-  // ===== MIDNIGHT UTC AUTO POST =====
-  cron.schedule("0 0 * * *", () => {
+  // ================= MIDNIGHT UTC AUTO POST =================
+  cron.schedule("0 0 * * *", async () => {
 
-    const today = new Date().toISOString().split("T")[0];
+    const todayDate = new Date().toISOString().split("T")[0];
+    const todayDay = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      timeZone: "UTC"
+    });
 
-    if (!db.routes[today]) return;
+    if (!db.routeSettings.channelId) return;
 
-    const data = db.routes[today];
+    const channel = await client.channels.fetch(db.routeSettings.channelId).catch(() => null);
+    if (!channel) return;
+
+    let data = db.routes[todayDate];
+
+    if (!data && db.weeklyRoutes[todayDay]) {
+      data = db.weeklyRoutes[todayDay];
+    }
+
+    if (!data) return;
 
     const embed = new EmbedBuilder()
       .setColor("Orange")
       .setTitle("🌟 Daily Featured Routes")
       .setDescription(
-        `Featured routes for **${today}**\n\n` +
+        `Featured routes for **${todayDate} (${todayDay})**\n\n` +
         `🔥 **${data.multiplier} Multiplier Available** on these routes!\n\n` +
         `${data.routes}`
       );
 
-    client.guilds.cache.forEach(guild => {
-      const channel = guild.systemChannel;
-      if (channel) {
-        channel.send({
-          content: `<@&${ROUTE_ROLE}>`,
-          embeds: [embed]
-        });
-      }
+    channel.send({
+      content: db.routeSettings.roleId
+        ? `<@&${db.routeSettings.roleId}>`
+        : null,
+      embeds: [embed]
     });
-  });
+
+  }, { timezone: "UTC" });
+
 });
 
 // ================= COMMAND HANDLER =================
@@ -112,60 +168,72 @@ client.on("interactionCreate", async interaction => {
 
   const { commandName } = interaction;
 
-  // ===== SET ROUTES =====
-  if (commandName === "setroutes") {
-    const date = interaction.options.getString("date");
-    const multiplier = interaction.options.getString("multiplier");
-    const routes = interaction.options.getString("routes");
+  if (commandName === "setroutechannel") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: "Admin only.", ephemeral: true });
 
-    db.routes[date] = { multiplier, routes };
+    db.routeSettings.channelId = interaction.options.getChannel("channel").id;
     saveDB();
+    return interaction.reply("✅ Route channel set.");
+  }
+
+  if (commandName === "setrouterole") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: "Admin only.", ephemeral: true });
+
+    db.routeSettings.roleId = interaction.options.getRole("role").id;
+    saveDB();
+    return interaction.reply("✅ Route role set.");
+  }
+
+  if (commandName === "setroutes") {
+    db.routes[interaction.options.getString("date")] = {
+      multiplier: interaction.options.getString("multiplier"),
+      routes: interaction.options.getString("routes")
+    };
+    saveDB();
+    return interaction.reply("✅ Date routes saved.");
+  }
+
+  if (commandName === "setweeklyroutes") {
+    db.weeklyRoutes[interaction.options.getString("day")] = {
+      multiplier: interaction.options.getString("multiplier"),
+      routes: interaction.options.getString("routes")
+    };
+    saveDB();
+    return interaction.reply("✅ Weekly template updated.");
+  }
+
+  if (commandName === "viewroutes") {
+    return interaction.reply(
+      `Weekly Routes: ${Object.keys(db.weeklyRoutes).length}\n` +
+      `Specific Dates: ${Object.keys(db.routes).length}`
+    );
+  }
+
+  if (commandName === "removeroutes") {
+    const date = interaction.options.getString("date");
+    delete db.routes[date];
+    saveDB();
+    return interaction.reply("❌ Date routes removed.");
+  }
+
+  if (commandName === "routedashboard") {
 
     const embed = new EmbedBuilder()
       .setColor("Orange")
-      .setTitle("🌟 Daily Featured Routes")
-      .setDescription(
-        `Featured routes for **${date}**\n\n` +
-        `🔥 **${multiplier} Multiplier Available** on these routes!\n\n` +
-        `${routes}`
+      .setTitle("🛠 Route System Dashboard")
+      .addFields(
+        { name: "Route Channel", value: db.routeSettings.channelId ? `<#${db.routeSettings.channelId}>` : "Not Set" },
+        { name: "Route Role", value: db.routeSettings.roleId ? `<@&${db.routeSettings.roleId}>` : "Not Set" },
+        { name: "Weekly Templates", value: Object.keys(db.weeklyRoutes).length.toString(), inline: true },
+        { name: "Specific Date Routes", value: Object.keys(db.routes).length.toString(), inline: true },
+        { name: "Auto Post Time", value: "00:00 UTC Daily", inline: false }
       );
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  // ===== VIEW ROUTES =====
-  if (commandName === "viewroutes") {
-    if (!Object.keys(db.routes).length)
-      return interaction.reply("No routes scheduled.");
-
-    const formatted = Object.entries(db.routes)
-      .map(([date, data]) =>
-        `📅 **${date}**\n🔥 ${data.multiplier}\n${data.routes}`
-      )
-      .join("\n\n");
-
-    return interaction.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor("Orange")
-          .setTitle("🌟 Scheduled Featured Routes")
-          .setDescription(formatted)
-      ]
-    });
-  }
-
-  // ===== REMOVE ROUTES =====
-  if (commandName === "removeroutes") {
-    const date = interaction.options.getString("date");
-
-    if (!db.routes[date])
-      return interaction.reply("No routes found for that date.");
-
-    delete db.routes[date];
-    saveDB();
-
-    return interaction.reply(`❌ Removed routes for ${date}`);
-  }
 });
 
 client.login(TOKEN);
