@@ -6,8 +6,6 @@ const {
   EmbedBuilder, ChannelType, ActivityType 
 } = require('discord.js');
 
-const fetch = require('node-fetch'); // Required for ATIS
-
 /* ===== ENV ===== */
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -296,9 +294,6 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
       }
 
     }
-
-    /* ===== BUTTONS & SELECT MENUS handled here later ===== */
-
   }catch(err){ console.error(err); }
 });
 
