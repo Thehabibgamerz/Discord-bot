@@ -1,7 +1,8 @@
 {
   "tickets": {},
-  "giveaways": {},
+  "ticketCounter": 0,
   "events": {},
+  "giveaways": {},
   "routes": {},
   "weeklyRoutes": {},
   "routeSettings": {
