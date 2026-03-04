@@ -1,17 +1,9 @@
-const {
-  Client,
-  GatewayIntentBits,
-  PermissionsBitField,
+const { 
+  Client, GatewayIntentBits, PermissionsBitField,
+  REST, Routes,
   SlashCommandBuilder,
-  REST,
-  Routes,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder,
-  ChannelType,
-  ActivityType
+  ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
+  EmbedBuilder, ChannelType, ActivityType 
 } = require('discord.js');
 
 const TOKEN = process.env.TOKEN;
@@ -20,40 +12,33 @@ const GUILD_ID = process.env.GUILD_ID;
 const OWNER_ID = process.env.OWNER_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
 
-// Role IDs
+// Role IDs for tickets
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
 const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 /* ================= TICKET STORAGE ================= */
 let ticketCounter = 0;
 const activeTickets = new Map(); // userId => channelId
 const ticketData = new Map(); // channelId => ticket info
 
+/* ================= EVENT STORAGE ================= */
+const events = new Map(); // messageId -> { title, description, time, duration, attendees, channel, embed }
+
 /* ================= SLASH COMMANDS ================= */
 const commands = [
   // Old commands
   new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Check bot latency'),
+    .setName('ping').setDescription('Check bot latency'),
 
   new SlashCommandBuilder()
     .setName('say')
     .setDescription('Make the bot say something')
-    .addStringOption(opt =>
-      opt.setName('text').setDescription('Message to send').setRequired(true))
-    .addChannelOption(opt =>
-      opt.setName('channel').setDescription('Optional channel to send message')),
+    .addStringOption(opt => opt.setName('text').setDescription('Message to send').setRequired(true))
+    .addChannelOption(opt => opt.setName('channel').setDescription('Optional channel')),
 
   new SlashCommandBuilder()
     .setName('kick')
@@ -65,7 +50,7 @@ const commands = [
     .setDescription('Ban a member')
     .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true)),
 
-  // Status command
+  // Status
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('Set bot status (Owner only)')
@@ -87,25 +72,32 @@ const commands = [
 
   // Ticket management
   new SlashCommandBuilder()
-    .setName('closeticket')
-    .setDescription('Close the current ticket'),
+    .setName('closeticket').setDescription('Close the current ticket'),
 
   new SlashCommandBuilder()
-    .setName('reopenticket')
-    .setDescription('Reopen a closed ticket'),
+    .setName('reopenticket').setDescription('Reopen a closed ticket'),
 
   new SlashCommandBuilder()
-    .setName('deleteticket')
-    .setDescription('Delete the current ticket'),
+    .setName('deleteticket').setDescription('Delete the current ticket'),
 
   new SlashCommandBuilder()
     .setName('ticketuser')
     .setDescription('Add or remove a user from a ticket')
     .addUserOption(opt => opt.setName('user').setDescription('User to add/remove').setRequired(true))
-    .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true).addChoices(
-      { name: 'Add', value: 'add' },
-      { name: 'Remove', value: 'remove' }
-    ))
+    .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true)
+      .addChoices({ name: 'Add', value: 'add' }, { name: 'Remove', value: 'remove' })),
+
+  // Event command
+  new SlashCommandBuilder()
+    .setName('event')
+    .setDescription('Create a new event')
+    .addStringOption(opt => opt.setName('title').setDescription('Event title').setRequired(true))
+    .addStringOption(opt => opt.setName('description').setDescription('Event description').setRequired(true))
+    .addStringOption(opt => opt.setName('time').setDescription('YYYY-MM-DD HH:mm').setRequired(true))
+    .addIntegerOption(opt => opt.setName('duration').setDescription('Event duration in hours').setRequired(true))
+    .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post event').setRequired(true))
+    .addStringOption(opt => opt.setName('image').setDescription('Optional image URL'))
+    .addStringOption(opt => opt.setName('mention').setDescription('Role ID to mention on create'))
 ].map(cmd => cmd.toJSON());
 
 /* ================= READY ================= */
@@ -114,16 +106,15 @@ client.once('ready', () => console.log(`✅ Logged in as ${client.user.tag}`));
 /* ================= INTERACTION HANDLER ================= */
 client.on('interactionCreate', async interaction => {
   try {
-    // ----- Slash Commands -----
+    // --- Slash commands ---
     if (interaction.isChatInputCommand()) {
+      const cmd = interaction.commandName;
 
       // Ping
-      if (interaction.commandName === 'ping') {
-        return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
-      }
+      if (cmd === 'ping') return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
 
       // Say
-      if (interaction.commandName === 'say') {
+      if (cmd === 'say') {
         const text = interaction.options.getString('text');
         const channel = interaction.options.getChannel('channel') || interaction.channel;
         await channel.send(text);
@@ -131,59 +122,47 @@ client.on('interactionCreate', async interaction => {
       }
 
       // Kick
-      if (interaction.commandName === 'kick') {
+      if (cmd === 'kick') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
           return interaction.reply({ content: '❌ No permission.', ephemeral: true });
-
         const user = interaction.options.getUser('user');
         const member = interaction.guild.members.cache.get(user.id);
-        if (member) {
-          await member.kick();
-          return interaction.reply(`👢 Kicked ${user.tag}`);
-        }
+        if (member) { await member.kick(); return interaction.reply(`👢 Kicked ${user.tag}`); }
       }
 
       // Ban
-      if (interaction.commandName === 'ban') {
+      if (cmd === 'ban') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
           return interaction.reply({ content: '❌ No permission.', ephemeral: true });
-
         const user = interaction.options.getUser('user');
         const member = interaction.guild.members.cache.get(user.id);
-        if (member) {
-          await member.ban();
-          return interaction.reply(`🔨 Banned ${user.tag}`);
-        }
+        if (member) { await member.ban(); return interaction.reply(`🔨 Banned ${user.tag}`); }
       }
 
       // Status
-      if (interaction.commandName === 'status') {
-        if (interaction.user.id !== OWNER_ID) 
-          return interaction.reply({ content: '❌ Only bot owner can use this.', ephemeral: true });
-
+      if (cmd === 'status') {
+        if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Only bot owner can use this.', ephemeral: true });
         const type = interaction.options.getString('type');
         const text = interaction.options.getString('text');
         let activityType = ActivityType.Playing;
         if (type === "WATCHING") activityType = ActivityType.Watching;
         if (type === "LISTENING") activityType = ActivityType.Listening;
         if (type === "STREAMING") activityType = ActivityType.Streaming;
-
         await client.user.setActivity(text, { type: activityType });
         return interaction.reply({ content: `✅ Status set to ${type} ${text}`, ephemeral: true });
       }
 
-      // Ticket panel
-      if (interaction.commandName === 'ticketpanel') {
+      // Ticket Panel
+      if (cmd === 'ticketpanel') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-          return interaction.reply({ content: "❌ Admin only.", ephemeral: true });
+          return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
 
         const channel = interaction.options.getChannel('channel');
         const image = interaction.options.getString('image');
 
         const embed = new EmbedBuilder()
           .setTitle("🎫 QPVA Support Centre ✈️")
-          .setDescription(
-`Welcome to the Akasa Air Virtual Support Center!
+          .setDescription(`Welcome to the Akasa Air Virtual Support Center!
 Need assistance with any Akasa Air service? You’re in the right place! Our dedicated <@&${GENERAL_ROLE_ID}> is here to help you quickly and efficiently.
 
 Please select a category below to create a ticket:
@@ -193,8 +172,7 @@ Please select a category below to create a ticket:
 - Executive Team Support
 - PIREP Support
 
-We’re committed to making your journey with Akasa Air smooth and stress-free! 🌍✈️`
-          )
+We’re committed to making your journey with Akasa Air smooth and stress-free! 🌍✈️`)
           .setColor(0xff6600)
           .setImage(image || null);
 
@@ -211,113 +189,136 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
         );
 
         await channel.send({ embeds: [embed], components: [row] });
-        return interaction.reply({ content: "✅ Ticket panel sent.", ephemeral: true });
+        return interaction.reply({ content: '✅ Ticket panel sent.', ephemeral: true });
       }
 
-      // Close ticket
-      if (interaction.commandName === 'closeticket') {
+      // Ticket management commands: closeticket, reopenticket, deleteticket, ticketuser
+      const ticketCmds = ['closeticket','reopenticket','deleteticket','ticketuser'];
+      if (ticketCmds.includes(cmd)) {
         const data = ticketData.get(interaction.channel.id);
         if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
 
-        await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: false });
-        return interaction.reply({ content: "🔒 Ticket closed.", ephemeral: true });
-      }
-
-      // Delete ticket
-      if (interaction.commandName === 'deleteticket') {
-        const data = ticketData.get(interaction.channel.id);
-        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
-
-        ticketData.delete(interaction.channel.id);
-        activeTickets.delete(data.openedBy);
-        await interaction.channel.delete();
-      }
-
-      // Reopen ticket
-      if (interaction.commandName === 'reopenticket') {
-        const data = ticketData.get(interaction.channel.id);
-        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
-
-        await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: true });
-        return interaction.reply({ content: "✅ Ticket reopened.", ephemeral: true });
-      }
-
-      // Ticket add/remove user
-      if (interaction.commandName === 'ticketuser') {
-        const data = ticketData.get(interaction.channel.id);
-        if (!data) return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
-
-        const user = interaction.options.getUser('user');
-        const action = interaction.options.getString('action');
-
-        if (action === 'add') {
-          await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true });
-          const embed = new EmbedBuilder()
-            .setDescription(`✅ <@${user.id}> has been added to the ticket.`)
-            .setColor(0x2ecc71);
-          return interaction.reply({ embeds: [embed], ephemeral: true });
+        if (cmd === 'closeticket') {
+          await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: false });
+          return interaction.reply({ content: '🔒 Ticket closed.', ephemeral: true });
         }
-
-        if (action === 'remove') {
-          await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: false, SendMessages: false });
-          const embed = new EmbedBuilder()
-            .setDescription(`✅ <@${user.id}> has been removed from the ticket.`)
-            .setColor(0xe74c3c);
-          return interaction.reply({ embeds: [embed], ephemeral: true });
+        if (cmd === 'reopenticket') {
+          await interaction.channel.permissionOverwrites.edit(data.openedBy, { SendMessages: true });
+          return interaction.reply({ content: '✅ Ticket reopened.', ephemeral: true });
         }
+        if (cmd === 'deleteticket') {
+          ticketData.delete(interaction.channel.id);
+          activeTickets.delete(data.openedBy);
+          await interaction.channel.delete();
+        }
+        if (cmd === 'ticketuser') {
+          const user = interaction.options.getUser('user');
+          const action = interaction.options.getString('action');
+          if (action === 'add') await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true });
+          if (action === 'remove') await interaction.channel.permissionOverwrites.edit(user.id, { ViewChannel: false, SendMessages: false });
+          return interaction.reply({ content: `✅ User ${action}ed.`, ephemeral: true });
+        }
+      }
+
+      // Event creation
+      if (cmd === 'event') {
+        const title = interaction.options.getString('title');
+        const description = interaction.options.getString('description');
+        const timeStr = interaction.options.getString('time');
+        const duration = interaction.options.getInteger('duration');
+        const channel = interaction.options.getChannel('channel');
+        const image = interaction.options.getString('image');
+        const mention = interaction.options.getString('mention');
+
+        const eventTime = new Date(timeStr);
+        if (isNaN(eventTime)) return interaction.reply({ content: '❌ Invalid time format.', ephemeral: true });
+
+        const attendees = new Set();
+
+        const embed = new EmbedBuilder()
+          .setTitle(title)
+          .setDescription(description)
+          .addFields(
+            { name: 'Time', value: eventTime.toLocaleString(), inline: true },
+            { name: 'Duration', value: `${duration} hours`, inline: true },
+            { name: 'Attending', value: 'None' }
+          )
+          .setColor(0x00FF00)
+          .setImage(image || null);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('attend_event').setLabel("✅ I'm attending").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('remove_event').setLabel("❌ Remove Me").setStyle(ButtonStyle.Danger)
+        );
+
+        const msg = await channel.send({ content: mention ? `<@&${mention}>` : null, embeds: [embed], components: [row] });
+        events.set(msg.id, { title, description, time: eventTime, duration, attendees, channel, embed });
+        return interaction.reply({ content: `✅ Event created in ${channel}`, ephemeral: true });
       }
     }
 
-    // Ticket creation select menu
-    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
-      if (activeTickets.has(interaction.user.id))
-        return interaction.reply({ content: "❌ You already have a ticket.", ephemeral: true });
+    // --- Button interactions ---
+    if (interaction.isButton()) {
+      // Event buttons
+      const event = events.get(interaction.message.id);
+      if (event) {
+        const userId = interaction.user.id;
+        if (interaction.customId === 'attend_event') event.attendees.add(userId);
+        if (interaction.customId === 'remove_event') event.attendees.delete(userId);
+        const attendeeList = event.attendees.size > 0 ? [...event.attendees].map(id => `<@${id}>`).join("\n") : 'None';
+        const embed = EmbedBuilder.from(event.embed).spliceFields(2, 1, { name: 'Attending', value: attendeeList });
+        return interaction.update({ embeds: [embed] });
+      }
 
-      await interaction.deferReply({ ephemeral: true });
+      // Ticket select menu
+      if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select') {
+        if (activeTickets.has(interaction.user.id))
+          return interaction.reply({ content: '❌ You already have a ticket.', ephemeral: true });
 
-      ticketCounter++;
-      const ticketNumber = String(ticketCounter).padStart(3, "0");
+        await interaction.deferReply({ ephemeral: true });
+        ticketCounter++;
+        const ticketNumber = String(ticketCounter).padStart(3, '0');
 
-      const categoryMap = {
-        general: { name: "General Support", role: GENERAL_ROLE_ID },
-        recruit: { name: "Recruitments", role: RECRUITER_ROLE_ID },
-        exec: { name: "Executive Team Support", role: EXEC_ROLE_ID },
-        pirep: { name: "PIREP Support", role: PIREP_ROLE_ID }
-      };
+        const categoryMap = {
+          general: { name: 'General Support', role: GENERAL_ROLE_ID },
+          recruit: { name: 'Recruitments', role: RECRUITER_ROLE_ID },
+          exec: { name: 'Executive Team Support', role: EXEC_ROLE_ID },
+          pirep: { name: 'PIREP Support', role: PIREP_ROLE_ID }
+        };
 
-      const selected = categoryMap[interaction.values[0]];
+        const selected = categoryMap[interaction.values[0]];
+        const channel = await interaction.guild.channels.create({
+          name: `ticket-${ticketNumber}`,
+          type: ChannelType.GuildText,
+          parent: CATEGORY_ID,
+          permissionOverwrites: [
+            { id: interaction.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+            { id: selected.role, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+          ]
+        });
 
-      const channel = await interaction.guild.channels.create({
-        name: `ticket-${ticketNumber}`,
-        type: ChannelType.GuildText,
-        parent: CATEGORY_ID,
-        permissionOverwrites: [
-          { id: interaction.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-          { id: selected.role, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-        ]
-      });
+        activeTickets.set(interaction.user.id, channel.id);
+        ticketData.set(channel.id, { category: selected.name, openedBy: interaction.user.id, claimedBy: null });
 
-      activeTickets.set(interaction.user.id, channel.id);
-      ticketData.set(channel.id, { category: selected.name, openedBy: interaction.user.id, claimedBy: null });
+        const embed = new EmbedBuilder()
+          .setTitle(selected.name)
+          .setDescription('Thanks for creating a ticket! Our staff team will contact you shortly.')
+          .addFields(
+            { name: 'Opened by', value: `<@${interaction.user.id}>` },
+            { name: 'Claimed by', value: 'Not claimed yet' }
+          )
+          .setColor(0x2ecc71);
 
-      const embed = new EmbedBuilder()
-        .setTitle(selected.name)
-        .setDescription(`Thanks for creating a ticket! Our staff team will contact you shortly.`)
-        .addFields(
-          { name: "Opened by", value: `<@${interaction.user.id}>` },
-          { name: "Claimed by", value: `Not claimed yet` }
-        )
-        .setColor(0x2ecc71);
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('add_user').setLabel('Add User').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary)
+        );
 
-      const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("claim").setLabel("Claim").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("adduser").setLabel("Add User").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("removeuser").setLabel("Remove User").setStyle(ButtonStyle.Secondary)
-      );
-
-      await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
-      return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
+        await channel.send({ content: `<@&${selected.role}>`, embeds: [embed], components: [buttons] });
+        return interaction.editReply({ content: `🎟 Ticket created: ${channel}` });
+      }
     }
 
   } catch (err) {
@@ -326,14 +327,10 @@ We’re committed to making your journey with Akasa Air smooth and stress-free! 
 });
 
 /* ================= REGISTER COMMANDS ================= */
-async function registerCommands() {
+(async () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
-  await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-    { body: commands }
-  );
-  console.log("✅ Slash commands registered");
-}
+  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+  console.log("✅ Commands registered");
+})();
 
-registerCommands();
 client.login(TOKEN);
