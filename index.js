@@ -1,4 +1,3 @@
-// ================== IMPORTS ==================
 const {
   Client,
   GatewayIntentBits,
@@ -14,14 +13,14 @@ const {
 const cron = require("node-cron");
 const fs = require("fs");
 
-// ================== CONFIG ==================
+// ================= CONFIG =================
 const TOKEN = process.env.TOKEN;
 const STAFF_ROLE = "1389824693388837035";
 const RECRUITER_ROLE = "YOUR_RECRUITER_ROLE_ID";
-const ROUTE_PING_ROLE = "YOUR_ROUTE_ROLE_ID";
-const ATIS_API_KEY = process.env.IF_API_KEY;
+const ROUTE_ROLE = "YOUR_ROUTE_ROLE_ID";
+const IF_API_KEY = process.env.IF_API_KEY;
 
-// ================== CLIENT ==================
+// ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,123 +29,155 @@ const client = new Client({
   ]
 });
 
-// ================== DATABASE ==================
+// ================= DATABASE =================
+if (!fs.existsSync("./database.json")) {
+  fs.writeFileSync("./database.json", JSON.stringify({
+    tickets: {},
+    giveaways: {},
+    events: {},
+    routes: {}
+  }, null, 2));
+}
+
 let db = JSON.parse(fs.readFileSync("./database.json"));
+
 function saveDB() {
   fs.writeFileSync("./database.json", JSON.stringify(db, null, 2));
 }
 
-// ================== READY ==================
-client.once("ready", async () => {
+// ================= READY =================
+client.once("clientReady", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  await client.application.commands.set([
+  const commands = [
 
-    // Ticket Panel
+    // TICKET PANEL
     new SlashCommandBuilder()
       .setName("ticketpanel")
-      .setDescription("Send ticket panel"),
+      .setDescription("Send support ticket panel"),
 
     new SlashCommandBuilder()
       .setName("closeticket")
-      .setDescription("Close ticket"),
+      .setDescription("Close the current ticket"),
 
     new SlashCommandBuilder()
       .setName("reopenticket")
-      .setDescription("Reopen ticket"),
+      .setDescription("Reopen the current ticket"),
 
     new SlashCommandBuilder()
       .setName("deleteticket")
-      .setDescription("Delete ticket"),
+      .setDescription("Delete the current ticket"),
 
-    // Giveaway
+    // STATUS
     new SlashCommandBuilder()
-      .setName("giveaway")
-      .setDescription("Create giveaway")
-      .addStringOption(o => o.setName("title").setRequired(true))
-      .addStringOption(o => o.setName("description").setRequired(true))
-      .addIntegerOption(o => o.setName("minutes").setRequired(true))
-      .addIntegerOption(o => o.setName("winners").setRequired(true))
-      .addChannelOption(o => o.setName("channel").setRequired(true)),
+      .setName("status")
+      .setDescription("Change bot status")
+      .addStringOption(option =>
+        option
+          .setName("type")
+          .setDescription("playing / watching / listening")
+          .setRequired(true)
+      )
+      .addStringOption(option =>
+        option
+          .setName("text")
+          .setDescription("Status text")
+          .setRequired(true)
+      ),
 
-    // Event
+    // SAY
     new SlashCommandBuilder()
-      .setName("event")
-      .setDescription("Create event")
-      .addStringOption(o => o.setName("title").setRequired(true))
-      .addStringOption(o => o.setName("description").setRequired(true))
-      .addStringOption(o => o.setName("time").setRequired(true))
-      .addChannelOption(o => o.setName("channel").setRequired(true)),
+      .setName("say")
+      .setDescription("Make the bot send a message")
+      .addStringOption(option =>
+        option
+          .setName("text")
+          .setDescription("Message to send")
+          .setRequired(true)
+      )
+      .addChannelOption(option =>
+        option
+          .setName("channel")
+          .setDescription("Channel to send message")
+          .setRequired(false)
+      ),
 
-    // Routes
+    // ADD ROLE
     new SlashCommandBuilder()
-      .setName("setroutes")
-      .setDescription("Set daily routes")
-      .addStringOption(o => o.setName("day").setRequired(true))
-      .addStringOption(o => o.setName("routes").setRequired(true)),
+      .setName("addrole")
+      .setDescription("Add role to user")
+      .addUserOption(option =>
+        option
+          .setName("user")
+          .setDescription("Select user")
+          .setRequired(true)
+      )
+      .addRoleOption(option =>
+        option
+          .setName("role")
+          .setDescription("Select role")
+          .setRequired(true)
+      ),
 
+    // REMOVE ROLE
     new SlashCommandBuilder()
-      .setName("viewroutes")
-      .setDescription("View routes"),
-
-    new SlashCommandBuilder()
-      .setName("removeroutes")
-      .setDescription("Remove routes")
-      .addStringOption(o => o.setName("day").setRequired(true)),
+      .setName("removerole")
+      .setDescription("Remove role from user")
+      .addUserOption(option =>
+        option
+          .setName("user")
+          .setDescription("Select user")
+          .setRequired(true)
+      )
+      .addRoleOption(option =>
+        option
+          .setName("role")
+          .setDescription("Select role")
+          .setRequired(true)
+      ),
 
     // ATIS
     new SlashCommandBuilder()
       .setName("atis")
       .setDescription("Get Infinite Flight ATIS")
-      .addStringOption(o => o.setName("airport").setRequired(true)),
+      .addStringOption(option =>
+        option
+          .setName("airport")
+          .setDescription("Airport ICAO code (e.g. OMDB)")
+          .setRequired(true)
+      )
+  ];
 
-    // Status
-    new SlashCommandBuilder()
-      .setName("status")
-      .setDescription("Change bot status")
-      .addStringOption(o => o.setName("type").setRequired(true))
-      .addStringOption(o => o.setName("text").setRequired(true)),
+  await client.application.commands.set(commands);
+  console.log("✅ Slash commands registered");
 
-    // Say
-    new SlashCommandBuilder()
-      .setName("say")
-      .setDescription("Bot say message")
-      .addStringOption(o => o.setName("text").setRequired(true))
-      .addChannelOption(o => o.setName("channel").setRequired(false)),
-
-    // Role add/remove
-    new SlashCommandBuilder()
-      .setName("addrole")
-      .setDescription("Add role to user")
-      .addUserOption(o => o.setName("user").setRequired(true))
-      .addRoleOption(o => o.setName("role").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("removerole")
-      .setDescription("Remove role from user")
-      .addUserOption(o => o.setName("user").setRequired(true))
-      .addRoleOption(o => o.setName("role").setRequired(true))
-  ]);
-
-  // Midnight UTC Featured Routes
+  // DAILY ROUTES MIDNIGHT UTC
   cron.schedule("0 0 * * *", () => {
-    const day = new Date().toLocaleString("en-US", { weekday: "long", timeZone: "UTC" });
+    const day = new Date().toLocaleString("en-US", {
+      weekday: "long",
+      timeZone: "UTC"
+    });
+
     if (!db.routes[day]) return;
 
     const embed = new EmbedBuilder()
       .setTitle("✈️ Daily Featured Routes")
-      .setDescription(`**${day}**\n\n${db.routes[day]}`)
+      .setDescription(db.routes[day])
       .setColor("Blue");
 
     client.guilds.cache.forEach(guild => {
       const channel = guild.systemChannel;
-      if (channel)
-        channel.send({ content: `<@&${ROUTE_PING_ROLE}>`, embeds: [embed] });
+      if (channel) {
+        channel.send({
+          content: `<@&${ROUTE_ROLE}>`,
+          embeds: [embed]
+        });
+      }
     });
   });
 });
 
-// ================== INTERACTIONS ==================
+// ================= INTERACTION HANDLER =================
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -156,51 +187,96 @@ client.on("interactionCreate", async interaction => {
   if (commandName === "status") {
     const type = interaction.options.getString("type");
     const text = interaction.options.getString("text");
-    client.user.setActivity(text, { type: type.toUpperCase() });
-    return interaction.reply({ content: "✅ Status updated", ephemeral: true });
+
+    const map = {
+      playing: 0,
+      streaming: 1,
+      listening: 2,
+      watching: 3
+    };
+
+    client.user.setActivity(text, { type: map[type] || 0 });
+
+    return interaction.reply({
+      content: "✅ Status updated",
+      ephemeral: true
+    });
   }
 
   // SAY
   if (commandName === "say") {
     const text = interaction.options.getString("text");
     const channel = interaction.options.getChannel("channel") || interaction.channel;
-    channel.send(text);
-    return interaction.reply({ content: "Sent.", ephemeral: true });
+
+    await channel.send(text);
+
+    return interaction.reply({
+      content: "✅ Message sent",
+      ephemeral: true
+    });
   }
 
   // ADD ROLE
   if (commandName === "addrole") {
-    const user = interaction.options.getMember("user");
+    const member = interaction.options.getMember("user");
     const role = interaction.options.getRole("role");
-    await user.roles.add(role);
-    return interaction.reply({ embeds: [new EmbedBuilder().setDescription(`✅ Role added to ${user}`)] });
+
+    await member.roles.add(role);
+
+    return interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("Green")
+          .setDescription(`✅ Added ${role} to ${member}`)
+      ]
+    });
   }
 
   // REMOVE ROLE
   if (commandName === "removerole") {
-    const user = interaction.options.getMember("user");
+    const member = interaction.options.getMember("user");
     const role = interaction.options.getRole("role");
-    await user.roles.remove(role);
-    return interaction.reply({ embeds: [new EmbedBuilder().setDescription(`❌ Role removed from ${user}`)] });
+
+    await member.roles.remove(role);
+
+    return interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("Red")
+          .setDescription(`❌ Removed ${role} from ${member}`)
+      ]
+    });
   }
 
-  // ATIS (Built-in fetch)
+  // ATIS
   if (commandName === "atis") {
     const airport = interaction.options.getString("airport").toUpperCase();
+
     try {
-      const res = await fetch(`https://api.infiniteflight.com/public/v2/atis/${airport}?apikey=${ATIS_API_KEY}`);
-      const data = await res.json();
+      const response = await fetch(
+        `https://api.infiniteflight.com/public/v2/atis/${airport}?apikey=${IF_API_KEY}`
+      );
+
+      const data = await response.json();
+
       if (!data.result)
-        return interaction.reply({ content: "No ATIS found.", ephemeral: true });
+        return interaction.reply({
+          content: "No ATIS found.",
+          ephemeral: true
+        });
 
       const embed = new EmbedBuilder()
         .setTitle(`ATIS - ${airport}`)
         .setDescription(data.result)
-        .setColor("Green");
+        .setColor("Blue");
 
       return interaction.reply({ embeds: [embed] });
-    } catch {
-      return interaction.reply({ content: "ATIS error.", ephemeral: true });
+
+    } catch (err) {
+      return interaction.reply({
+        content: "ATIS API error.",
+        ephemeral: true
+      });
     }
   }
 });
