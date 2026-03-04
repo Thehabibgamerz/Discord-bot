@@ -2,5 +2,10 @@
   "tickets": {},
   "giveaways": {},
   "events": {},
-  "routes": {}
+  "routes": {},
+  "weeklyRoutes": {},
+  "routeSettings": {
+    "channelId": null,
+    "roleId": null
+  }
 }
