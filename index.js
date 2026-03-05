@@ -224,11 +224,24 @@ new SlashCommandBuilder()
 .setDescription("View previously posted routes")
 /* ===== REGISTER COMMANDS ===== */
 
-(async()=>{
-const rest = new REST({version:"10"}).setToken(TOKEN);
-await rest.put(Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID),{body:commands});
-console.log("Slash commands registered");
-})();
+async function registerCommands() {
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+  try {
+    console.log("Registering slash commands...");
+
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands }
+    );
+
+    console.log("Slash commands registered successfully.");
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+registerCommands();
 
 /* ===== READY ===== */
 
