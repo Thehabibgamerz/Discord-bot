@@ -1,18 +1,8 @@
 {
   "routes": {
-    "channel": null,
-    "role": null,
+    "schedule": {},
     "time": "00:00",
-    "timezone": "UTC",
-    "week": {
-      "monday": { "routes": [], "multiplier": "1x" },
-      "tuesday": { "routes": [], "multiplier": "1x" },
-      "wednesday": { "routes": [], "multiplier": "1x" },
-      "thursday": { "routes": [], "multiplier": "1x" },
-      "friday": { "routes": [], "multiplier": "1x" },
-      "saturday": { "routes": [], "multiplier": "1x" },
-      "sunday": { "routes": [], "multiplier": "1x" }
-    },
+    "channel": null,
     "history": []
   }
 }
