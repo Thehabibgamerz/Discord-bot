@@ -13,21 +13,25 @@ EmbedBuilder,
 ActivityType
 } = require('discord.js');
 
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fs = require("fs");
 
 /* ===== ENV ===== */
+
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const OWNER_ID = process.env.OWNER_ID;
-const CATEGORY_ID = process.env.CATEGORY_ID;
+
 const IF_API_KEY = process.env.IF_API_KEY;
 
-// Roles
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
 const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
+
+const PILOT_ROLE_ID = "1432617094956060683";
+
+/* ===== CLIENT ===== */
 
 const client = new Client({
 intents:[
@@ -38,276 +42,324 @@ GatewayIntentBits.MessageContent
 ]
 });
 
-/* ===== DATA ===== */
-const events = new Map();
-const giveaways = new Map();
+/* ===== DATABASE ===== */
 
-/* ===== HELPERS ===== */
-function formatSEShTime(date){
-return date.toLocaleString('en-US',{
-weekday:'long',
-year:'numeric',
-month:'long',
-day:'numeric',
-hour:'2-digit',
-minute:'2-digit',
-hour12:true
-});
+const dbFile = "./database.json";
+
+let db = {
+routes:{
+schedule:{},
+time:"00:00",
+channel:null,
+history:[]
+}
+};
+
+if(fs.existsSync(dbFile)){
+db = JSON.parse(fs.readFileSync(dbFile));
 }
 
-/* ===== COMMANDS ===== */
+function saveDB(){
+fs.writeFileSync(dbFile,JSON.stringify(db,null,2));
+}
+
+/* ===== HELPERS ===== */
+
+function todayDay(){
+return new Date().toLocaleDateString("en-US",{weekday:"long",timeZone:"Asia/Kolkata"});
+}
+
+function todayDate(){
+return new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Kolkata"});
+}
+
+/* ===== SLASH COMMANDS ===== */
 
 const commands = [
 
 new SlashCommandBuilder()
-.setName('ping')
-.setDescription('Check bot latency'),
+.setName("ping")
+.setDescription("Check bot latency"),
 
 new SlashCommandBuilder()
-.setName('say')
-.setDescription('Make the bot say something')
-.addStringOption(opt=>opt.setName('text').setDescription('Message').setRequired(true))
-.addChannelOption(opt=>opt.setName('channel').setDescription('Optional channel')),
+.setName("say")
+.setDescription("Make the bot say something")
+.addStringOption(o=>o.setName("text").setDescription("Message").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('kick')
-.setDescription('Kick a member')
-.addUserOption(opt=>opt.setName('user').setDescription('User').setRequired(true)),
+.setName("kick")
+.setDescription("Kick member")
+.addUserOption(o=>o.setName("user").setDescription("User").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('ban')
-.setDescription('Ban a member')
-.addUserOption(opt=>opt.setName('user').setDescription('User').setRequired(true)),
+.setName("ban")
+.setDescription("Ban member")
+.addUserOption(o=>o.setName("user").setDescription("User").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('status')
-.setDescription('Set bot status')
-.addStringOption(opt=>opt.setName('type')
-.setDescription('Type')
-.setRequired(true)
+.setName("status")
+.setDescription("Set bot status")
+.addStringOption(o=>o.setName("type").setDescription("Type").setRequired(true)
 .addChoices(
-{name:'Playing',value:'PLAYING'},
-{name:'Watching',value:'WATCHING'},
-{name:'Listening',value:'LISTENING'},
-{name:'Streaming',value:'STREAMING'}
+{name:"Playing",value:"PLAYING"},
+{name:"Watching",value:"WATCHING"},
+{name:"Listening",value:"LISTENING"}
 ))
-.addStringOption(opt=>opt.setName('text').setDescription('Status text').setRequired(true)),
+.addStringOption(o=>o.setName("text").setDescription("Text").setRequired(true)),
+
+/* ROUTES SYSTEM */
 
 new SlashCommandBuilder()
-.setName('ticketpanel')
-.setDescription('Send ticket panel')
-.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
-.addStringOption(opt=>opt.setName('image').setDescription('Image URL')),
+.setName("set-weekly-schedule")
+.setDescription("Set route channel")
+.addChannelOption(o=>o.setName("channel").setDescription("Channel").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('event')
-.setDescription('Create event')
-.addStringOption(opt=>opt.setName('title').setDescription('Title').setRequired(true))
-.addStringOption(opt=>opt.setName('description').setDescription('Description').setRequired(true))
-.addStringOption(opt=>opt.setName('time').setDescription('YYYY-MM-DD HH:mm').setRequired(true))
-.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
-.addStringOption(opt=>opt.setName('image').setDescription('Image'))
-.addStringOption(opt=>opt.setName('mention').setDescription('Role ID')),
+.setName("set-time")
+.setDescription("Set route post time")
+.addStringOption(o=>o.setName("time").setDescription("HH:MM").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('giveaway')
-.setDescription('Create giveaway')
-.addStringOption(opt=>opt.setName('title').setDescription('Title').setRequired(true))
-.addStringOption(opt=>opt.setName('description').setDescription('Description').setRequired(true))
-.addStringOption(opt=>opt.setName('prize').setDescription('Prize').setRequired(true))
-.addStringOption(opt=>opt.setName('ends_on').setDescription('YYYY-MM-DD HH:mm').setRequired(true))
-.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
-.addStringOption(opt=>opt.setName('mention').setDescription('Role ID')),
+.setName("add-route")
+.setDescription("Add route")
+.addStringOption(o=>o.setName("day").setDescription("Day").setRequired(true))
+.addStringOption(o=>o.setName("route").setDescription("Route").setRequired(true)),
 
 new SlashCommandBuilder()
-.setName('atis')
-.setDescription('Get Infinite Flight ATIS')
-.addStringOption(opt=>opt.setName('icao').setDescription('ICAO').setRequired(true))
-.addStringOption(opt=>opt.setName('server').setDescription('casual / training / expert').setRequired(true))
+.setName("remove-route")
+.setDescription("Remove route")
+.addStringOption(o=>o.setName("day").setDescription("Day").setRequired(true))
+.addStringOption(o=>o.setName("route").setDescription("Route").setRequired(true)),
+
+new SlashCommandBuilder()
+.setName("view-routes")
+.setDescription("View today's routes"),
+
+new SlashCommandBuilder()
+.setName("view-weekly-routes")
+.setDescription("View weekly routes"),
+
+new SlashCommandBuilder()
+.setName("force-send")
+.setDescription("Force send today's routes")
 
 ].map(c=>c.toJSON());
 
 /* ===== REGISTER COMMANDS ===== */
 
-(async()=>{
-const rest = new REST({version:'10'}).setToken(TOKEN);
+async function registerCommands(){
+const rest = new REST({version:"10"}).setToken(TOKEN);
+
 await rest.put(
 Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID),
 {body:commands}
 );
-console.log("✅ Slash commands registered");
-})();
+
+console.log("Slash commands registered");
+}
+
+registerCommands();
+
+/* ===== ROUTE SENDER ===== */
+
+async function sendRoutes(){
+
+if(!db.routes.channel) return;
+
+const channel = await client.channels.fetch(db.routes.channel).catch(()=>null);
+if(!channel) return;
+
+const day = todayDay();
+const routes = db.routes.schedule[day];
+
+if(!routes || routes.length===0) return;
+
+const embed = new EmbedBuilder()
+.setTitle("✈️ Daily Featured Routes")
+.setDescription(`📅 ${day}, ${todayDate()}
+
+👨‍✈️ All pilots can fly Featured Routes.
+
+🛫 Routes
+${routes.map(r=>"• "+r).join("\n")}
+
+📈 Multiplier: 1.7x`)
+.setColor(0xff6600);
+
+await channel.send({
+content:`<@&${PILOT_ROLE_ID}>`,
+embeds:[embed]
+});
+
+db.routes.history.push({day,date:todayDate(),routes});
+saveDB();
+
+}
 
 /* ===== READY ===== */
 
-client.once('ready',()=>{
-console.log(`🤖 Logged in as ${client.user.tag}`);
+client.once("ready",()=>{
+
+console.log(`Logged in as ${client.user.tag}`);
+
+setInterval(()=>{
+
+const now = new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"});
+
+if(now===db.routes.time){
+sendRoutes();
+}
+
+},60000);
+
 });
 
-/* ===== INTERACTIONS ===== */
+/* ===== COMMAND HANDLER ===== */
 
-client.on('interactionCreate', async interaction=>{
+client.on("interactionCreate",async interaction=>{
 
 if(!interaction.isChatInputCommand()) return;
 
 const cmd = interaction.commandName;
 
-/* ===== PING ===== */
+/* OLD COMMANDS */
 
 if(cmd==="ping"){
-return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
+return interaction.reply(`🏓 Pong ${client.ws.ping}ms`);
 }
-
-/* ===== SAY ===== */
 
 if(cmd==="say"){
-
 const text = interaction.options.getString("text");
-const channel = interaction.options.getChannel("channel") || interaction.channel;
-
-await channel.send(text);
-
-return interaction.reply({
-content:`✅ Message sent to ${channel}`,
-ephemeral:true
-});
+await interaction.channel.send(text);
+return interaction.reply({content:"Sent",ephemeral:true});
 }
-
-/* ===== KICK ===== */
 
 if(cmd==="kick"){
-
 if(!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
-return interaction.reply({content:"❌ No permission",ephemeral:true});
+return interaction.reply({content:"No permission",ephemeral:true});
 
 const user = interaction.options.getUser("user");
 const member = interaction.guild.members.cache.get(user.id);
-
-if(member){
 await member.kick();
-return interaction.reply(`👢 Kicked ${user.tag}`);
-}
 
+return interaction.reply(`Kicked ${user.tag}`);
 }
-
-/* ===== BAN ===== */
 
 if(cmd==="ban"){
-
 if(!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-return interaction.reply({content:"❌ No permission",ephemeral:true});
+return interaction.reply({content:"No permission",ephemeral:true});
 
 const user = interaction.options.getUser("user");
 const member = interaction.guild.members.cache.get(user.id);
-
-if(member){
 await member.ban();
-return interaction.reply(`🔨 Banned ${user.tag}`);
-}
 
+return interaction.reply(`Banned ${user.tag}`);
 }
-
-/* ===== STATUS ===== */
 
 if(cmd==="status"){
 
 if(interaction.user.id!==OWNER_ID)
-return interaction.reply({content:"❌ Owner only",ephemeral:true});
+return interaction.reply({content:"Owner only",ephemeral:true});
 
 const type = interaction.options.getString("type");
 const text = interaction.options.getString("text");
 
 let act = ActivityType.Playing;
 
-if(type==="WATCHING") act=ActivityType.Watching;
-if(type==="LISTENING") act=ActivityType.Listening;
-if(type==="STREAMING") act=ActivityType.Streaming;
+if(type==="WATCHING") act = ActivityType.Watching;
+if(type==="LISTENING") act = ActivityType.Listening;
 
 client.user.setActivity(text,{type:act});
 
-return interaction.reply({
-content:`✅ Status updated`,
-ephemeral:true
-});
+return interaction.reply({content:"Status updated",ephemeral:true});
 
 }
 
-/* ===== TICKET PANEL ===== */
+/* ROUTE COMMANDS */
 
-if(cmd==="ticketpanel"){
-
-if(!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-return interaction.reply({content:"❌ Admin only",ephemeral:true});
+if(cmd==="set-weekly-schedule"){
 
 const channel = interaction.options.getChannel("channel");
-const image = interaction.options.getString("image");
 
-const embed = new EmbedBuilder()
-.setTitle("🎫 Support Centre")
-.setDescription("Select a category to open ticket")
-.setColor(0xff6600);
+db.routes.channel = channel.id;
+saveDB();
 
-if(image) embed.setImage(image);
-
-const row = new ActionRowBuilder().addComponents(
-
-new StringSelectMenuBuilder()
-.setCustomId("ticket_select")
-.setPlaceholder("Select category")
-.addOptions([
-{label:"General Support",value:"general"},
-{label:"Recruitments",value:"recruit"},
-{label:"Executive Support",value:"exec"},
-{label:"PIREP Support",value:"pirep"}
-])
-
-);
-
-await channel.send({embeds:[embed],components:[row]});
-
-return interaction.reply({content:"✅ Ticket panel sent",ephemeral:true});
+return interaction.reply("Route channel set");
 
 }
 
-/* ===== ATIS ===== */
+if(cmd==="set-time"){
 
-if(cmd==="atis"){
+const time = interaction.options.getString("time");
 
-const icao = interaction.options.getString("icao").toUpperCase();
-const server = interaction.options.getString("server").toLowerCase();
+db.routes.time = time;
+saveDB();
 
-await interaction.deferReply();
+return interaction.reply(`Route time set to ${time} IST`);
 
-try{
-
-const res = await fetch(
-`https://api.infiniteflight.com/public/v2/atis/${icao}?server=${server}`,
-{
-headers:{Authorization:`Bearer ${IF_API_KEY}`}
 }
-);
 
-if(!res.ok)
-return interaction.editReply("❌ Failed to fetch ATIS");
+if(cmd==="add-route"){
 
-const data = await res.json();
+const day = interaction.options.getString("day");
+const route = interaction.options.getString("route");
 
-const embed = new EmbedBuilder()
-.setTitle(`🛫 ATIS ${icao}`)
-.setColor(0x1E90FF)
-.addFields(
-{name:"Information",value:data.info||"N/A"},
-{name:"Runways",value:data.runways||"N/A"},
-{name:"Weather",value:data.weather||"N/A"}
-)
-.setTimestamp();
+if(!db.routes.schedule[day]) db.routes.schedule[day]=[];
 
-interaction.editReply({embeds:[embed]});
+db.routes.schedule[day].push(route);
+saveDB();
 
-}catch(err){
-console.error(err);
-interaction.editReply("❌ Error fetching ATIS");
+return interaction.reply("Route added");
+
 }
+
+if(cmd==="remove-route"){
+
+const day = interaction.options.getString("day");
+const route = interaction.options.getString("route");
+
+if(!db.routes.schedule[day]) return interaction.reply("No routes");
+
+db.routes.schedule[day] = db.routes.schedule[day].filter(r=>r!==route);
+
+saveDB();
+
+return interaction.reply("Route removed");
+
+}
+
+if(cmd==="view-routes"){
+
+const day = todayDay();
+const routes = db.routes.schedule[day];
+
+if(!routes) return interaction.reply("No routes today");
+
+return interaction.reply(`Routes for ${day}
+
+${routes.join("\n")}`);
+
+}
+
+if(cmd==="view-weekly-routes"){
+
+let text = "";
+
+for(const d in db.routes.schedule){
+
+text += `\n${d}\n${db.routes.schedule[d].join("\n")}\n`;
+
+}
+
+return interaction.reply(text || "No routes");
+
+}
+
+if(cmd==="force-send"){
+
+await sendRoutes();
+
+return interaction.reply("Routes sent");
 
 }
 
