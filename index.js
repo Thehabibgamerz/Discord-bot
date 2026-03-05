@@ -145,42 +145,83 @@ new SlashCommandBuilder()
 new SlashCommandBuilder()
 .setName("set-weekly-schedule")
 .setDescription("Set route channel and role")
-.addChannelOption(o=>o.setName("channel").setRequired(true))
-.addRoleOption(o=>o.setName("role").setRequired(true)),
+.addChannelOption(o=>
+  o.setName("channel")
+   .setDescription("Channel where routes will be posted")
+   .setRequired(true)
+)
+.addRoleOption(o=>
+  o.setName("role")
+   .setDescription("Role to ping for routes")
+   .setRequired(true)
+),
 
 new SlashCommandBuilder()
 .setName("set-time")
-.setDescription("Set posting time HH:MM")
-.addStringOption(o=>o.setName("time").setRequired(true)),
+.setDescription("Set route posting time")
+.addStringOption(o=>
+  o.setName("time")
+   .setDescription("Time in HH:MM format")
+   .setRequired(true)
+),
 
 new SlashCommandBuilder()
 .setName("add-route")
-.setDescription("Add route")
-.addStringOption(o=>o.setName("day").setRequired(true))
-.addStringOption(o=>o.setName("route").setRequired(true)),
+.setDescription("Add route to a day")
+.addStringOption(o=>
+  o.setName("day")
+   .setDescription("Day of the week")
+   .setRequired(true)
+)
+.addStringOption(o=>
+  o.setName("route")
+   .setDescription("Route to add")
+   .setRequired(true)
+),
 
 new SlashCommandBuilder()
 .setName("remove-route")
-.setDescription("Remove route")
-.addStringOption(o=>o.setName("day").setRequired(true))
-.addStringOption(o=>o.setName("route").setRequired(true)),
+.setDescription("Remove route from a day")
+.addStringOption(o=>
+  o.setName("day")
+   .setDescription("Day of the week")
+   .setRequired(true)
+)
+.addStringOption(o=>
+  o.setName("route")
+   .setDescription("Route to remove")
+   .setRequired(true)
+),
 
 new SlashCommandBuilder()
 .setName("set-multiplier")
-.setDescription("Set multiplier")
-.addStringOption(o=>o.setName("day").setRequired(true))
-.addStringOption(o=>o.setName("value").setRequired(true)),
+.setDescription("Set multiplier for a day")
+.addStringOption(o=>
+  o.setName("day")
+   .setDescription("Day of the week")
+   .setRequired(true)
+)
+.addStringOption(o=>
+  o.setName("value")
+   .setDescription("Multiplier value like 1.5x")
+   .setRequired(true)
+),
 
-new SlashCommandBuilder().setName("view-routes").setDescription("View today's routes"),
+new SlashCommandBuilder()
+.setName("view-routes")
+.setDescription("View today's featured routes"),
 
-new SlashCommandBuilder().setName("view-weekly-routes").setDescription("View weekly routes"),
+new SlashCommandBuilder()
+.setName("view-weekly-routes")
+.setDescription("View routes for the entire week"),
 
-new SlashCommandBuilder().setName("force-send").setDescription("Force send today's routes"),
+new SlashCommandBuilder()
+.setName("force-send")
+.setDescription("Force send today's routes"),
 
-new SlashCommandBuilder().setName("route-history").setDescription("View route history")
-
-].map(c=>c.toJSON());
-
+new SlashCommandBuilder()
+.setName("route-history")
+.setDescription("View previously posted routes")
 /* ===== REGISTER COMMANDS ===== */
 
 (async()=>{
