@@ -11,12 +11,11 @@ ButtonBuilder,
 ButtonStyle,
 EmbedBuilder,
 ActivityType
-} = require("discord.js");
+} = require('discord.js');
 
-const fs = require("fs");
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 /* ===== ENV ===== */
-
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
@@ -24,12 +23,11 @@ const OWNER_ID = process.env.OWNER_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
 const IF_API_KEY = process.env.IF_API_KEY;
 
+// Roles
 const GENERAL_ROLE_ID = process.env.GENERAL_ROLE_ID;
 const RECRUITER_ROLE_ID = process.env.RECRUITER_ROLE_ID;
 const EXEC_ROLE_ID = process.env.EXEC_ROLE_ID;
 const PIREP_ROLE_ID = process.env.PIREP_ROLE_ID;
-
-/* ===== CLIENT ===== */
 
 const client = new Client({
 intents:[
@@ -40,435 +38,277 @@ GatewayIntentBits.MessageContent
 ]
 });
 
-/* ===== DATABASE ===== */
-
-let db = JSON.parse(fs.readFileSync("./database.json"));
-
-function saveDB(){
-fs.writeFileSync("./database.json", JSON.stringify(db,null,2));
-}
+/* ===== DATA ===== */
+const events = new Map();
+const giveaways = new Map();
 
 /* ===== HELPERS ===== */
-
-function formatDate(date){
-return date.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-}
-
-/* ===== DAILY ROUTE SCHEDULER ===== */
-
-function startScheduler(){
-
-setInterval(async()=>{
-
-if(!db.routes.channel) return;
-
-const now = new Date();
-const current = now.toISOString().substring(11,16);
-
-if(current !== db.routes.time) return;
-
-const day = now.toLocaleDateString("en-US",{weekday:"long"}).toLowerCase();
-
-const data = db.routes.week[day];
-if(!data) return;
-
-const guild = client.guilds.cache.get(GUILD_ID);
-const channel = guild.channels.cache.get(db.routes.channel);
-
-if(!channel) return;
-
-const routeList = data.routes.map(r=>`• ${r}`).join("\n") || "No routes";
-
-const embed = new EmbedBuilder()
-.setTitle("✈️ Daily Featured Routes")
-.setDescription(`📅 ${formatDate(now)}`)
-.addFields(
-{name:"📈 Multiplier",value:data.multiplier},
-{name:"👨‍✈️ Pilots",value:"All pilots can fly Featured Routes"},
-{name:"🛫 Routes",value:routeList}
-)
-.setColor(0xff6600)
-.setTimestamp();
-
-await channel.send({
-content: db.routes.role ? `<@&${db.routes.role}>` : null,
-embeds:[embed]
+function formatSEShTime(date){
+return date.toLocaleString('en-US',{
+weekday:'long',
+year:'numeric',
+month:'long',
+day:'numeric',
+hour:'2-digit',
+minute:'2-digit',
+hour12:true
 });
-
-db.routes.history.push({
-day,
-date:now.toISOString(),
-routes:data.routes
-});
-
-saveDB();
-
-},60000);
-
 }
 
 /* ===== COMMANDS ===== */
 
 const commands = [
 
-new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
+new SlashCommandBuilder()
+.setName('ping')
+.setDescription('Check bot latency'),
 
 new SlashCommandBuilder()
-.setName("say")
-.setDescription("Make bot say message")
-.addStringOption(o=>o.setName("text").setRequired(true))
-.addChannelOption(o=>o.setName("channel")),
+.setName('say')
+.setDescription('Make the bot say something')
+.addStringOption(opt=>opt.setName('text').setDescription('Message').setRequired(true))
+.addChannelOption(opt=>opt.setName('channel').setDescription('Optional channel')),
 
 new SlashCommandBuilder()
-.setName("kick")
-.setDescription("Kick user")
-.addUserOption(o=>o.setName("user").setRequired(true)),
+.setName('kick')
+.setDescription('Kick a member')
+.addUserOption(opt=>opt.setName('user').setDescription('User').setRequired(true)),
 
 new SlashCommandBuilder()
-.setName("ban")
-.setDescription("Ban user")
-.addUserOption(o=>o.setName("user").setRequired(true)),
+.setName('ban')
+.setDescription('Ban a member')
+.addUserOption(opt=>opt.setName('user').setDescription('User').setRequired(true)),
 
 new SlashCommandBuilder()
-.setName("status")
-.setDescription("Set bot status")
-.addStringOption(o=>o.setName("type").setRequired(true)
+.setName('status')
+.setDescription('Set bot status')
+.addStringOption(opt=>opt.setName('type')
+.setDescription('Type')
+.setRequired(true)
 .addChoices(
-{name:"Playing",value:"PLAYING"},
-{name:"Watching",value:"WATCHING"},
-{name:"Listening",value:"LISTENING"}
+{name:'Playing',value:'PLAYING'},
+{name:'Watching',value:'WATCHING'},
+{name:'Listening',value:'LISTENING'},
+{name:'Streaming',value:'STREAMING'}
 ))
-.addStringOption(o=>o.setName("text").setRequired(true)),
-
-/* ROUTE COMMANDS */
+.addStringOption(opt=>opt.setName('text').setDescription('Status text').setRequired(true)),
 
 new SlashCommandBuilder()
-.setName("set-weekly-schedule")
-.setDescription("Set route channel and role")
-.addChannelOption(o=>
-  o.setName("channel")
-   .setDescription("Channel where routes will be posted")
-   .setRequired(true)
-)
-.addRoleOption(o=>
-  o.setName("role")
-   .setDescription("Role to ping for routes")
-   .setRequired(true)
-),
+.setName('ticketpanel')
+.setDescription('Send ticket panel')
+.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
+.addStringOption(opt=>opt.setName('image').setDescription('Image URL')),
 
 new SlashCommandBuilder()
-.setName("set-time")
-.setDescription("Set route posting time")
-.addStringOption(o=>
-  o.setName("time")
-   .setDescription("Time in HH:MM format")
-   .setRequired(true)
-),
+.setName('event')
+.setDescription('Create event')
+.addStringOption(opt=>opt.setName('title').setDescription('Title').setRequired(true))
+.addStringOption(opt=>opt.setName('description').setDescription('Description').setRequired(true))
+.addStringOption(opt=>opt.setName('time').setDescription('YYYY-MM-DD HH:mm').setRequired(true))
+.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
+.addStringOption(opt=>opt.setName('image').setDescription('Image'))
+.addStringOption(opt=>opt.setName('mention').setDescription('Role ID')),
 
 new SlashCommandBuilder()
-.setName("add-route")
-.setDescription("Add route to a day")
-.addStringOption(o=>
-  o.setName("day")
-   .setDescription("Day of the week")
-   .setRequired(true)
-)
-.addStringOption(o=>
-  o.setName("route")
-   .setDescription("Route to add")
-   .setRequired(true)
-),
+.setName('giveaway')
+.setDescription('Create giveaway')
+.addStringOption(opt=>opt.setName('title').setDescription('Title').setRequired(true))
+.addStringOption(opt=>opt.setName('description').setDescription('Description').setRequired(true))
+.addStringOption(opt=>opt.setName('prize').setDescription('Prize').setRequired(true))
+.addStringOption(opt=>opt.setName('ends_on').setDescription('YYYY-MM-DD HH:mm').setRequired(true))
+.addChannelOption(opt=>opt.setName('channel').setDescription('Channel').setRequired(true))
+.addStringOption(opt=>opt.setName('mention').setDescription('Role ID')),
 
 new SlashCommandBuilder()
-.setName("remove-route")
-.setDescription("Remove route from a day")
-.addStringOption(o=>
-  o.setName("day")
-   .setDescription("Day of the week")
-   .setRequired(true)
-)
-.addStringOption(o=>
-  o.setName("route")
-   .setDescription("Route to remove")
-   .setRequired(true)
-),
+.setName('atis')
+.setDescription('Get Infinite Flight ATIS')
+.addStringOption(opt=>opt.setName('icao').setDescription('ICAO').setRequired(true))
+.addStringOption(opt=>opt.setName('server').setDescription('casual / training / expert').setRequired(true))
 
-new SlashCommandBuilder()
-.setName("set-multiplier")
-.setDescription("Set multiplier for a day")
-.addStringOption(o=>
-  o.setName("day")
-   .setDescription("Day of the week")
-   .setRequired(true)
-)
-.addStringOption(o=>
-  o.setName("value")
-   .setDescription("Multiplier value like 1.5x")
-   .setRequired(true)
-),
+].map(c=>c.toJSON());
 
-new SlashCommandBuilder()
-.setName("view-routes")
-.setDescription("View today's featured routes"),
-
-new SlashCommandBuilder()
-.setName("view-weekly-routes")
-.setDescription("View routes for the entire week"),
-
-new SlashCommandBuilder()
-.setName("force-send")
-.setDescription("Force send today's routes"),
-
-new SlashCommandBuilder()
-.setName("route-history")
-.setDescription("View previously posted routes")
 /* ===== REGISTER COMMANDS ===== */
 
-async function registerCommands() {
-  const rest = new REST({ version: "10" }).setToken(TOKEN);
-
-  try {
-    console.log("Registering slash commands...");
-
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
-
-    console.log("Slash commands registered successfully.");
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-registerCommands();
+(async()=>{
+const rest = new REST({version:'10'}).setToken(TOKEN);
+await rest.put(
+Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID),
+{body:commands}
+);
+console.log("✅ Slash commands registered");
+})();
 
 /* ===== READY ===== */
 
-client.once("ready",()=>{
-console.log(`Logged in as ${client.user.tag}`);
-startScheduler();
+client.once('ready',()=>{
+console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
 /* ===== INTERACTIONS ===== */
 
-client.on("interactionCreate",async interaction=>{
+client.on('interactionCreate', async interaction=>{
 
 if(!interaction.isChatInputCommand()) return;
 
 const cmd = interaction.commandName;
 
-/* PING */
+/* ===== PING ===== */
 
-if(cmd==="ping")
-return interaction.reply(`Pong ${client.ws.ping}ms`);
+if(cmd==="ping"){
+return interaction.reply(`🏓 Pong! ${client.ws.ping}ms`);
+}
 
-/* SAY */
+/* ===== SAY ===== */
 
 if(cmd==="say"){
+
 const text = interaction.options.getString("text");
 const channel = interaction.options.getChannel("channel") || interaction.channel;
+
 await channel.send(text);
-return interaction.reply({content:"Sent",ephemeral:true});
+
+return interaction.reply({
+content:`✅ Message sent to ${channel}`,
+ephemeral:true
+});
 }
 
-/* KICK */
+/* ===== KICK ===== */
 
 if(cmd==="kick"){
+
 if(!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
-return interaction.reply("No permission");
+return interaction.reply({content:"❌ No permission",ephemeral:true});
 
 const user = interaction.options.getUser("user");
 const member = interaction.guild.members.cache.get(user.id);
 
+if(member){
 await member.kick();
-return interaction.reply(`Kicked ${user.tag}`);
+return interaction.reply(`👢 Kicked ${user.tag}`);
 }
 
-/* BAN */
+}
+
+/* ===== BAN ===== */
 
 if(cmd==="ban"){
+
 if(!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-return interaction.reply("No permission");
+return interaction.reply({content:"❌ No permission",ephemeral:true});
 
 const user = interaction.options.getUser("user");
 const member = interaction.guild.members.cache.get(user.id);
 
+if(member){
 await member.ban();
-return interaction.reply(`Banned ${user.tag}`);
+return interaction.reply(`🔨 Banned ${user.tag}`);
 }
 
-/* STATUS */
+}
+
+/* ===== STATUS ===== */
 
 if(cmd==="status"){
 
-if(interaction.user.id !== OWNER_ID)
-return interaction.reply("Owner only");
+if(interaction.user.id!==OWNER_ID)
+return interaction.reply({content:"❌ Owner only",ephemeral:true});
 
 const type = interaction.options.getString("type");
 const text = interaction.options.getString("text");
 
 let act = ActivityType.Playing;
 
-if(type==="WATCHING") act = ActivityType.Watching;
-if(type==="LISTENING") act = ActivityType.Listening;
+if(type==="WATCHING") act=ActivityType.Watching;
+if(type==="LISTENING") act=ActivityType.Listening;
+if(type==="STREAMING") act=ActivityType.Streaming;
 
 client.user.setActivity(text,{type:act});
 
-return interaction.reply("Status updated");
+return interaction.reply({
+content:`✅ Status updated`,
+ephemeral:true
+});
+
 }
 
-/* SET WEEKLY SCHEDULE */
+/* ===== TICKET PANEL ===== */
 
-if(cmd==="set-weekly-schedule"){
+if(cmd==="ticketpanel"){
 
 if(!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-return interaction.reply("Admin only");
+return interaction.reply({content:"❌ Admin only",ephemeral:true});
 
 const channel = interaction.options.getChannel("channel");
-const role = interaction.options.getRole("role");
-
-db.routes.channel = channel.id;
-db.routes.role = role.id;
-
-saveDB();
-
-return interaction.reply("Schedule set");
-}
-
-/* SET TIME */
-
-if(cmd==="set-time"){
-
-db.routes.time = interaction.options.getString("time");
-
-saveDB();
-
-return interaction.reply("Time updated");
-}
-
-/* ADD ROUTE */
-
-if(cmd==="add-route"){
-
-const day = interaction.options.getString("day").toLowerCase();
-const route = interaction.options.getString("route");
-
-db.routes.week[day].routes.push(route);
-
-saveDB();
-
-return interaction.reply("Route added");
-}
-
-/* REMOVE ROUTE */
-
-if(cmd==="remove-route"){
-
-const day = interaction.options.getString("day").toLowerCase();
-const route = interaction.options.getString("route");
-
-db.routes.week[day].routes =
-db.routes.week[day].routes.filter(r=>r!==route);
-
-saveDB();
-
-return interaction.reply("Route removed");
-}
-
-/* MULTIPLIER */
-
-if(cmd==="set-multiplier"){
-
-const day = interaction.options.getString("day").toLowerCase();
-const value = interaction.options.getString("value");
-
-db.routes.week[day].multiplier = value;
-
-saveDB();
-
-return interaction.reply("Multiplier set");
-}
-
-/* VIEW TODAY */
-
-if(cmd==="view-routes"){
-
-const day = new Date().toLocaleDateString("en-US",{weekday:"long"}).toLowerCase();
-const data = db.routes.week[day];
+const image = interaction.options.getString("image");
 
 const embed = new EmbedBuilder()
-.setTitle("Today's Routes")
+.setTitle("🎫 Support Centre")
+.setDescription("Select a category to open ticket")
+.setColor(0xff6600);
+
+if(image) embed.setImage(image);
+
+const row = new ActionRowBuilder().addComponents(
+
+new StringSelectMenuBuilder()
+.setCustomId("ticket_select")
+.setPlaceholder("Select category")
+.addOptions([
+{label:"General Support",value:"general"},
+{label:"Recruitments",value:"recruit"},
+{label:"Executive Support",value:"exec"},
+{label:"PIREP Support",value:"pirep"}
+])
+
+);
+
+await channel.send({embeds:[embed],components:[row]});
+
+return interaction.reply({content:"✅ Ticket panel sent",ephemeral:true});
+
+}
+
+/* ===== ATIS ===== */
+
+if(cmd==="atis"){
+
+const icao = interaction.options.getString("icao").toUpperCase();
+const server = interaction.options.getString("server").toLowerCase();
+
+await interaction.deferReply();
+
+try{
+
+const res = await fetch(
+`https://api.infiniteflight.com/public/v2/atis/${icao}?server=${server}`,
+{
+headers:{Authorization:`Bearer ${IF_API_KEY}`}
+}
+);
+
+if(!res.ok)
+return interaction.editReply("❌ Failed to fetch ATIS");
+
+const data = await res.json();
+
+const embed = new EmbedBuilder()
+.setTitle(`🛫 ATIS ${icao}`)
+.setColor(0x1E90FF)
 .addFields(
-{name:"Multiplier",value:data.multiplier},
-{name:"Routes",value:data.routes.join("\n")||"None"}
+{name:"Information",value:data.info||"N/A"},
+{name:"Runways",value:data.runways||"N/A"},
+{name:"Weather",value:data.weather||"N/A"}
 )
-.setColor(0xff6600);
+.setTimestamp();
 
-return interaction.reply({embeds:[embed]});
+interaction.editReply({embeds:[embed]});
+
+}catch(err){
+console.error(err);
+interaction.editReply("❌ Error fetching ATIS");
 }
 
-/* VIEW WEEK */
-
-if(cmd==="view-weekly-routes"){
-
-const embed = new EmbedBuilder()
-.setTitle("Weekly Routes")
-.setColor(0xff6600);
-
-for(const d in db.routes.week){
-
-embed.addFields({
-name:d.toUpperCase(),
-value:db.routes.week[d].routes.join("\n")||"None"
-});
-
-}
-
-return interaction.reply({embeds:[embed]});
-}
-
-/* FORCE SEND */
-
-if(cmd==="force-send"){
-
-const day = new Date().toLocaleDateString("en-US",{weekday:"long"}).toLowerCase();
-const data = db.routes.week[day];
-
-const channel = client.channels.cache.get(db.routes.channel);
-
-const embed = new EmbedBuilder()
-.setTitle("✈️ Daily Featured Routes")
-.addFields(
-{name:"Multiplier",value:data.multiplier},
-{name:"Routes",value:data.routes.join("\n")}
-)
-.setColor(0xff6600);
-
-await channel.send({
-content:`<@&${db.routes.role}>`,
-embeds:[embed]
-});
-
-return interaction.reply("Routes sent");
-}
-
-/* HISTORY */
-
-if(cmd==="route-history"){
-
-const embed = new EmbedBuilder()
-.setTitle("Route History")
-.setColor(0xff6600);
-
-db.routes.history.slice(-5).forEach(h=>{
-embed.addFields({
-name:h.day,
-value:h.routes.join("\n")
-});
-});
-
-return interaction.reply({embeds:[embed]});
 }
 
 });
